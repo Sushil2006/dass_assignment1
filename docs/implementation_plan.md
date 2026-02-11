@@ -7,16 +7,17 @@ This repo currently contains the assignment PDF (`assignment1.pdf`) and your not
 1. Confirm deliverables and folders.
 You must end with `<roll_no>/backend/`, `<roll_no>/frontend/`, `<roll_no>/README.md`, `<roll_no>/deployment.txt`.
 
-2. Pick your Part-2 (Advanced) features now because they affect your data model and UI.
-Recommended set (good learning value, integrates well with core requirements):
+2. Advanced Features (FINALIZED):
 Tier A: Merchandise Payment Approval Workflow; QR Scanner & Attendance Tracking.
 Tier B: Organizer Password Reset Workflow via Admin; Real-time Discussion Forum.
-Tier C: Add-to-Calendar integration.
+Tier C: Anonymous Feedback System
 
-3. Make 3 key architecture decisions (write them in your README as “Design Choices”).
-Token storage: `httpOnly` cookie JWT (safer) or `localStorage` JWT (simpler).
-File uploads: local disk (easy, weak for cloud deploy) or Cloudinary/S3 (best for deploy).
-Emails: real SMTP provider (best) or a dev SMTP (good for local).
+3. Review `docs/HLD.md` (keep it in sync as you build).
+
+4. Architecture decisions (locked in for this course project).
+Token storage: `httpOnly` cookie JWT.
+File uploads: local disk storage.
+Emails: dev SMTP (easy local testing; e.g., Mailtrap or Ethereal).
 
 ## 1) Project Setup (1–2 hours)
 
@@ -29,12 +30,13 @@ Frontend: `npm create vite@latest frontend -- --template react` (or your preferr
 
 3. Create `.env` files and document required environment variables.
 Backend must have: `MONGODB_URI`, `JWT_SECRET`, `CLIENT_ORIGIN`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`.
-If using email: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`.
-If using Cloudinary: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`.
-If using Discord: `DISCORD_WEBHOOK_URL` (per organizer or global).
+Cookies: `COOKIE_SECURE` (true in prod), `COOKIE_SAME_SITE` (`lax` locally; `none` if cross-site), optional `COOKIE_DOMAIN`.
+Uploads: `UPLOAD_DIR` (e.g., `./uploads`).
+Email (dev SMTP): `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`.
+Discord: `DISCORD_WEBHOOK_URL` (per organizer or global).
 
 4. Add basic tooling.
-Backend: `nodemon`, `eslint` (optional), `morgan`, `cors`, `cookie-parser`, `dotenv`.
+Backend: `nodemon`, `eslint` (optional), `morgan`, `cors`, `cookie-parser`, `dotenv`, `multer` (local uploads).
 Frontend: `react-router-dom`, `axios` (or `fetch`), a small UI library (optional).
 
 Checkpoint: You can run `backend` server and `frontend` dev server at the same time without errors.
@@ -46,6 +48,8 @@ Suggested folders: `src/app.js`, `src/server.js`, `src/config/`, `src/routes/`, 
 
 2. Add global middleware and error handling.
 JSON parsing, CORS, cookies, request logging, “not found” handler, centralized error handler.
+
+Uploads: configure `multer` storage under `UPLOAD_DIR`; serve files via a protected download endpoint (recommended for payment proofs) rather than a fully public static directory.
 
 3. Connect MongoDB with Mongoose.
 Use a single connection helper and fail fast if `MONGODB_URI` is missing.
@@ -77,6 +81,9 @@ Registration/Purchase:
 Store one record per participant per event with `status`, `createdAt`, and type-specific fields.
 Ticket:
 `ticketId` (unique), `eventId`, `participantId`, `qrPayload`, `issuedAt`.
+Anonymous Feedback (Tier C):
+`eventId`, `rating` (1–5), `comment`, `createdAt`.
+To keep it anonymous for organizers while still preventing spam/duplicates, store `participantId` internally but never return it in organizer-facing APIs; enforce one feedback per participant per event.
 
 3. Add indexes early.
 Unique index: user email; ticketId.
@@ -98,8 +105,9 @@ No self-registration; only Admin can create organizer accounts.
 On backend boot, create the first admin if none exists using `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
 
 4. Login and session persistence.
-Implement `POST /api/auth/login` returning a JWT.
-Persist session across restarts by storing JWT in an `httpOnly` cookie with a long expiry (simple) or add refresh-token flow (more secure).
+Implement `POST /api/auth/login` that sets an `httpOnly` cookie (JWT) and returns basic user info (role, id, display name).
+Persist session across restarts by giving the cookie a long expiry; clear it on logout.
+Important: configure CORS with `credentials: true` and set cookie attributes (`Secure`, `SameSite`) correctly for your local vs deployed setup.
 
 5. Authorization middleware.
 `requireAuth` verifies JWT.
@@ -139,6 +147,10 @@ Validate: stock, per-participant limit, deadline.
 Decrement stock safely (use atomic update).
 Generate ticket and send email.
 
+7. Anonymous feedback (Tier C).
+Expose participant endpoints to submit feedback only after attendance/completion, and prevent duplicates:
+`POST /api/events/:id/feedback`, `GET /api/events/:id/feedback/me` (optional), `DELETE /api/events/:id/feedback` (optional).
+
 Checkpoint: A participant can register/purchase and see the ticket ID in a “history” response.
 
 ## 6) Organizer APIs (Core) (8–16 hours)
@@ -158,7 +170,7 @@ Lock form after first registration (set `isFormLocked=true` when the first submi
 
 4. Organizer dashboard data.
 `GET /api/organizer/events` returning list with computed status.
-Analytics for completed events: registrations, revenue, attendance counts.
+Analytics for completed events: registrations, revenue, attendance counts, and (Tier C) feedback aggregates.
 
 5. Participants list + CSV export.
 `GET /api/organizer/events/:id/participants` with search/filter.
@@ -192,7 +204,7 @@ Create an `AuthProvider` that loads the current user from `GET /api/me` on app s
 Implement `ProtectedRoute` that checks auth + role.
 
 3. API client.
-Create one `api` helper (Axios or fetch wrapper) that includes credentials, handles `401/403`, and normalizes errors.
+Create one `api` helper (Axios or fetch wrapper) that uses `withCredentials: true` / `credentials: "include"`, handles `401/403`, and normalizes errors.
 
 Checkpoint: You can login and get routed to the correct dashboard by role.
 
@@ -221,6 +233,9 @@ List + follow/unfollow; organizer detail with upcoming/past events.
 Edit allowed fields; lock email and participant type.
 Add a password-change screen.
 
+7. Anonymous feedback UI (Tier C).
+Add a “Leave Feedback” action for attended/completed events (usually from the Completed tab or ticket detail) with a 1–5 rating and optional comment.
+
 Checkpoint: A participant can complete the entire journey from signup to ticket.
 
 ## 10) Organizer UI (Core Screens) (8–16 hours)
@@ -236,6 +251,9 @@ Overview, analytics, participants list, CSV export.
 
 4. Organizer profile page.
 Allow editing contact details and Discord webhook url.
+
+5. Anonymous feedback analytics (Tier C).
+Show average rating, counts by rating, and anonymous comments; allow export for analysis.
 
 Checkpoint: Organizer can create a draft, build a form, publish, and inspect registrations.
 
@@ -273,7 +291,7 @@ Add `PasswordResetRequest` model; organizer submits request; admin approves/reje
 
 2. Tier A: Merchandise Payment Approval Workflow.
 Change merch “purchase” into an “order” with status: `PENDING`, `APPROVED`, `REJECTED`.
-Add payment proof upload and organizer approval UI.
+Add payment proof upload (store image on local disk + file path in DB) and organizer approval UI.
 Only on approval: decrement stock, issue QR ticket, send confirmation email.
 
 3. Tier A: QR Scanner & Attendance Tracking.
@@ -284,8 +302,9 @@ Implement scan by camera (library) or file upload; verify ticketId; mark attenda
 Use `socket.io` for real-time updates.
 Create message model with threading fields; allow organizer moderation actions; add notifications (basic badge count is fine).
 
-5. Tier C: Add-to-Calendar.
-Generate `.ics` file for an event; add Google/Outlook links; allow export from “My Events”.
+5. Tier C: Anonymous Feedback System.
+Allow participants to submit feedback only for events they have attended.
+Add a `Feedback` model and endpoints for: submit/edit (optional) and organizer analytics (average rating, counts by star rating, list of comments without participant identity) plus CSV export if you want.
 
 Checkpoint: Each advanced feature has a short README section describing the workflow and endpoints.
 
@@ -293,7 +312,8 @@ Checkpoint: Each advanced feature has a short README section describing the work
 
 1. Backend deployment.
 Deploy Express server to Render/Railway/Fly.
-Set environment variables and ensure file uploads work in production (prefer Cloudinary/S3).
+Set environment variables and ensure local-disk uploads work in your chosen host:
+either attach a persistent disk (best) or accept that uploads reset on redeploy (fine for a course demo).
 
 2. MongoDB Atlas.
 Create Atlas cluster, whitelist IPs (or 0.0.0.0/0 for assignment), set `MONGODB_URI`.
@@ -325,4 +345,3 @@ Include setup steps, env vars, chosen advanced features, known limitations, and 
 3. Auth: bcrypt hashing, JWT signing/verification, RBAC middleware, cookies/CORS.
 4. React: routing, protected routes, forms, state management, API calls.
 5. “Real systems” skills: uploads, email, QR generation/scanning, deployments, debugging production issues.
-
