@@ -3,12 +3,14 @@ import path from "node:path";
 import { app } from "./app";
 import { env } from "./config/env";
 import { connectDb } from "./db/client";
+import { ensureDbIndexes } from "./db/indexes";
 
 async function main() {
   const uploadDirPath = path.resolve(process.cwd(), env.UPLOAD_DIR);
   fs.mkdirSync(uploadDirPath, { recursive: true });
 
   await connectDb();
+  await ensureDbIndexes();
 
   app.listen(env.PORT, () => {
     console.log(`API listening on http://localhost:${env.PORT}`);
