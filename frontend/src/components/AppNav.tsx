@@ -1,7 +1,34 @@
 import { Container, Nav, Navbar } from "react-bootstrap";
 import { Link, useNavigate } from "react-router-dom";
-import { logout } from "../lib/auth";
+import { logout, type AuthUser } from "../lib/auth";
 import { useAuth } from "../lib/authState";
+
+type NavItem = {
+  label: string;
+  to: string;
+};
+
+// Role-based menu map using assignment labels.
+// For now, links point to existing dashboard routes until dedicated pages are added.
+const roleMenus: Record<AuthUser["role"], NavItem[]> = {
+  participant: [
+    { label: "Dashboard", to: "/participant" },
+    { label: "Browse Events", to: "/participant" },
+    { label: "Clubs/Organizers", to: "/participant" },
+    { label: "Profile", to: "/participant" },
+  ],
+  organizer: [
+    { label: "Dashboard", to: "/organizer" },
+    { label: "Create Event", to: "/organizer" },
+    { label: "Ongoing Events", to: "/organizer" },
+    { label: "Profile", to: "/organizer" },
+  ],
+  admin: [
+    { label: "Dashboard", to: "/admin" },
+    { label: "Manage Clubs/Organizers", to: "/admin" },
+    { label: "Password Reset Requests", to: "/admin" },
+  ],
+};
 
 export default function AppNav() {
   const navigate = useNavigate();
@@ -15,10 +42,8 @@ export default function AppNav() {
     }
   }
 
-  const canSeeParticipant =
-    user?.role === "participant" || user?.role === "admin";
-  const canSeeOrganizer = user?.role === "organizer" || user?.role === "admin";
-  const canSeeAdmin = user?.role === "admin";
+  // Compute role menu once the user is known.
+  const menuItems = user ? roleMenus[user.role] : [];
 
   return (
     <Navbar bg="light" expand="lg" className="border-bottom">
@@ -26,6 +51,7 @@ export default function AppNav() {
         <Navbar.Brand as={Link} to="/">
           DASS
         </Navbar.Brand>
+
         <Navbar.Toggle aria-controls="main-nav" />
         <Navbar.Collapse id="main-nav">
           <Nav className="me-auto">
@@ -35,28 +61,22 @@ export default function AppNav() {
                   Login
                 </Nav.Link>
                 <Nav.Link as={Link} to="/signup">
-                  Signup
+                  Participant Signup
                 </Nav.Link>
               </>
             ) : null}
 
-            {!loading && user && canSeeParticipant ? (
-              <Nav.Link as={Link} to="/participant">
-                Participant
-              </Nav.Link>
-            ) : null}
-
-            {!loading && user && canSeeOrganizer ? (
-              <Nav.Link as={Link} to="/organizer">
-                Organizer
-              </Nav.Link>
-            ) : null}
-
-            {!loading && user && canSeeAdmin ? (
-              <Nav.Link as={Link} to="/admin">
-                Admin
-              </Nav.Link>
-            ) : null}
+            {!loading && user
+              ? menuItems.map((item) => (
+                  <Nav.Link
+                    key={`${item.label}-${item.to}`}
+                    as={Link}
+                    to={item.to}
+                  >
+                    {item.label}
+                  </Nav.Link>
+                ))
+              : null}
           </Nav>
 
           <Nav>
@@ -65,6 +85,7 @@ export default function AppNav() {
                 href="#"
                 onClick={(e) => {
                   e.preventDefault();
+                  // Keep logout async-safe from click handler.
                   void onLogout();
                 }}
               >

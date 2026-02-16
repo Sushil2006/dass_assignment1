@@ -5,7 +5,7 @@ import { getDb } from "../db/client";
 import { hashPassword, verifyPassword } from "../utils/password";
 import { signJwt, verifyJwt } from "../utils/jwt";
 import { AUTH_COOKIE_NAME, authCookieOptions } from "../config/cookies";
-import { userRoles } from "../db/models";
+import { userRoles, type UserDoc } from "../db/models";
 
 export const authRouter = Router();
 
@@ -48,6 +48,7 @@ authRouter.post("/signup", async (req, res, next) => {
     }
 
     const db = getDb();
+    const users = db.collection<UserDoc>("users");
     const { name, email, password, role } = parsed.data;
 
     if (role !== "participant") {
@@ -59,7 +60,8 @@ authRouter.post("/signup", async (req, res, next) => {
     const passwordHash = await hashPassword(password);
     const createdAt = new Date();
 
-    const insertResult = await db.collection("users").insertOne({
+    const insertResult = await users.insertOne({
+      _id: new ObjectId(),
       name,
       email: email.toLowerCase(),
       passwordHash,
@@ -104,19 +106,17 @@ authRouter.post("/login", async (req, res, next) => {
     }
 
     const db = getDb();
+    const users = db.collection<UserDoc>("users");
     const email = parsed.data.email.toLowerCase();
 
-    const user = await db.collection("users").findOne({ email });
+    const user = await users.findOne({ email });
     if (!user) {
       return res
         .status(401)
         .json({ error: { message: "Invalid credentials" } });
     }
 
-    const ok = await verifyPassword(
-      parsed.data.password,
-      String(user.passwordHash),
-    );
+    const ok = await verifyPassword(parsed.data.password, user.passwordHash);
     if (!ok) {
       return res
         .status(401)
@@ -124,19 +124,14 @@ authRouter.post("/login", async (req, res, next) => {
     }
 
     const token = signJwt({
-      userId: String(user._id),
-      role: String(user.role) as any,
+      userId: user._id.toString(),
+      role: user.role,
     });
+
     res.cookie(AUTH_COOKIE_NAME, token, authCookieOptions);
 
     return res.json({
-      user: toPublicUser({
-        _id: user._id as ObjectId, // user._id not guaranteed to be ObjectId, when extracted from mongodb; however, we know that it is ObjectId in this case, so telling that to typescript through this syntax
-        email: String(user.email),
-        role: String(user.role),
-        name: String(user.name),
-        createdAt: user.createdAt as Date,
-      }),
+      user: toPublicUser(user),
     });
   } catch (err) {
     return next(err);

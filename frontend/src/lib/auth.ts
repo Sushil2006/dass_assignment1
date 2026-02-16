@@ -51,11 +51,11 @@ export async function signup(
   name: string,
   email: string,
   password: string,
-  role: AuthUser["role"],
 ): Promise<AuthUser> {
   const res = await apiFetch("/api/auth/signup", {
     method: "POST",
-    body: JSON.stringify({ name, email, password, role }),
+    // self-signup is only for participants.
+    body: JSON.stringify({ name, email, password, role: "participant" }),
   });
 
   if (!res.ok) throw new Error(await readErrorMessage(res));

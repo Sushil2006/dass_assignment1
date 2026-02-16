@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { Alert, Button, Card, Container, Form } from "react-bootstrap";
 import { Link, useNavigate } from "react-router-dom";
-import { signup, type AuthUser } from "../lib/auth";
+import { signup } from "../lib/auth";
 
 export default function Signup() {
   const navigate = useNavigate();
 
+  // Participant signup form state.
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<AuthUser["role"]>("participant");
 
+  // UI state for request lifecycle.
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -20,13 +21,9 @@ export default function Signup() {
     setBusy(true);
 
     try {
-      const user = await signup(name, email, password, role);
-      // backend sets auth cookie on signup, so you're "logged in" right away
-      if (user.role === "participant")
-        navigate("/participant", { replace: true });
-      else if (user.role === "organizer")
-        navigate("/organizer", { replace: true });
-      else navigate("/admin", { replace: true });
+      await signup(name, email, password);
+      // Signup is participant-only in this milestone.
+      navigate("/participant", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Signup failed");
     } finally {
@@ -38,7 +35,7 @@ export default function Signup() {
     <Container className="py-5" style={{ maxWidth: 480 }}>
       <Card className="border">
         <Card.Body>
-          <Card.Title className="mb-3">Create account</Card.Title>
+          <Card.Title className="mb-3">Create participant account</Card.Title>
 
           {error ? <Alert variant="danger">{error}</Alert> : null}
 
@@ -80,29 +77,15 @@ export default function Signup() {
               />
             </Form.Group>
 
-            <Form.Group className="mb-3" controlId="role">
-              <Form.Label>Role</Form.Label>
-              <Form.Select
-                value={role}
-                onChange={(e) => setRole(e.target.value as AuthUser["role"])}
-              >
-                <option value="participant">participant</option>
-                <option value="organizer">organizer</option>
-                <option value="admin">admin</option>
-              </Form.Select>
-              <Form.Text className="text-muted">
-                Note: Backend only allows participant signup; other roles will
-                return an error.
-              </Form.Text>
-            </Form.Group>
-
             <div className="d-grid gap-2">
               <Button type="submit" disabled={busy}>
                 {busy ? "Creating..." : "Create account"}
               </Button>
-              <Button as={Link} to="/login" variant="outline-secondary">
+
+              {/* Keep login navigation simple and type-safe. */}
+              <Link to="/login" className="btn btn-outline-secondary">
                 Back to login
-              </Button>
+              </Link>
             </div>
           </Form>
         </Card.Body>

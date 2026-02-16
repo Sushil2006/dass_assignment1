@@ -84,9 +84,9 @@ export default function Login() {
               <Button type="submit" disabled={busy}>
                 {busy ? "Signing in..." : "Sign in"}
               </Button>
-              <Button as={Link} to="/signup" variant="outline-secondary">
+              <Link to="/signup" className="btn btn-outline-secondary">
                 Create account
-              </Button>
+              </Link>
             </div>
           </Form>
         </Card.Body>

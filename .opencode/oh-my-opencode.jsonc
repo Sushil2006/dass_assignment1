@@ -1,6 +1,14 @@
 {
   "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
   "sisyphus_agent": {
-    "disabled": true
-  }
+    "disabled": true,
+  },
+  "agents": {
+    "build": {
+      "permission": {
+        "edit": "deny",
+      },
+    },
+  },
+  "disabled_tools": ["edit", "write", "apply_patch", "lsp_rename"],
 }
