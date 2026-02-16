@@ -5,6 +5,7 @@ import ParticipantDashboard from "./pages/ParticipantDashboard";
 import OrganizerDashboard from "./pages/OrganizerDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import AppNav from "./components/AppNav";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function App() {
   return (
@@ -14,9 +15,18 @@ export default function App() {
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
-        <Route path="/participant" element={<ParticipantDashboard />} />
-        <Route path="/organizer" element={<OrganizerDashboard />} />
-        <Route path="/admin" element={<AdminDashboard />} />
+
+        <Route element={<ProtectedRoute roles={["participant"]} />}>
+          <Route path="/participant" element={<ParticipantDashboard />} />
+        </Route>
+
+        <Route element={<ProtectedRoute roles={["organizer"]} />}>
+          <Route path="/organizer" element={<OrganizerDashboard />} />
+        </Route>
+
+        <Route element={<ProtectedRoute roles={["admin"]} />}>
+          <Route path="/admin" element={<AdminDashboard />} />
+        </Route>
       </Routes>
     </BrowserRouter>
   );
