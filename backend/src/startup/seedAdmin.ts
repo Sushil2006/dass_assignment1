@@ -28,7 +28,6 @@ export async function seedFirstAdmin(): Promise<void> {
     email: env.ADMIN_EMAIL.toLowerCase(),
     passwordHash,
     role: "admin",
-    accountStatus: "active",
     isDisabled: false,
     createdAt,
   };

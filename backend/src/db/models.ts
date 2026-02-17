@@ -8,9 +8,6 @@ export type UserRole = (typeof userRoles)[number]; // (typeof userRoles)[number]
 export const participantTypes = ["iiit", "non-iiit"] as const;
 export type ParticipantType = (typeof participantTypes)[number];
 
-export const accountStatuses = ["active", "disabled"] as const;
-export type AccountStatus = (typeof accountStatuses)[number];
-
 export type UserDoc = {
   _id: ObjectId;
   email: string;
@@ -21,7 +18,6 @@ export type UserDoc = {
   participantType?: ParticipantType;
   collegeOrOrganization?: string;
   contactNumber?: string;
-  accountStatus?: AccountStatus;
   isDisabled?: boolean;
 };
 

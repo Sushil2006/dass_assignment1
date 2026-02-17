@@ -3,8 +3,9 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { env } from "../config/env";
 import { getDb } from "../db/client";
+import { requireAuth } from "../middleware/auth";
 import { hashPassword, verifyPassword } from "../utils/password";
-import { signJwt, verifyJwt } from "../utils/jwt";
+import { signJwt } from "../utils/jwt";
 import { AUTH_COOKIE_NAME, authCookieOptions } from "../config/cookies";
 import {
   participantTypes,
@@ -110,7 +111,6 @@ authRouter.post("/signup", async (req, res, next) => {
       passwordHash,
       role: "participant",
       participantType,
-      accountStatus: "active",
       isDisabled: false,
       createdAt,
     };
@@ -182,6 +182,16 @@ authRouter.post("/login", async (req, res, next) => {
         .json({ error: { message: "Invalid credentials" } });
     }
 
+    // block organizer login when admin disables the account
+    if (
+      user.role === "organizer" &&
+      user.isDisabled === true
+    ) {
+      return res
+        .status(403)
+        .json({ error: { message: "Organizer account is disabled" } });
+    }
+
     const token = signJwt({
       userId: user._id.toString(),
       role: user.role,
@@ -208,32 +218,24 @@ authRouter.post("/logout", (req, res) => {
   return res.json({ ok: true });
 });
 
-authRouter.get("/me", async (req, res, next) => {
+authRouter.get("/me", requireAuth, async (req, res, next) => {
   try {
-    const token = req.cookies?.[AUTH_COOKIE_NAME];
-    if (!token || typeof token !== "string") {
+    // req.user is set by requireAuth after token validation
+    const authUser = req.user;
+    if (!authUser) {
       return res.status(401).json({ error: { message: "Not authenticated" } });
     }
 
-    const payload = verifyJwt(token);
-
     const db = getDb();
-    const user = await db
-      .collection("users")
-      .findOne({ _id: new ObjectId(payload.userId) });
+    const users = db.collection<UserDoc>("users");
+    const user = await users.findOne({ _id: new ObjectId(authUser.id) });
 
     if (!user) {
       return res.status(401).json({ error: { message: "Not authenticated" } });
     }
 
     return res.json({
-      user: toPublicUser({
-        _id: user._id as ObjectId,
-        email: String(user.email),
-        role: String(user.role),
-        name: String(user.name),
-        createdAt: user.createdAt as Date,
-      }),
+      user: toPublicUser(user),
     });
   } catch (err) {
     return next(err);
