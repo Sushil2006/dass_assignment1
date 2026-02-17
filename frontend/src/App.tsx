@@ -3,7 +3,8 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ParticipantDashboard from "./pages/ParticipantDashboard";
 import OrganizerDashboard from "./pages/OrganizerDashboard";
-import AdminDashboard from "./pages/AdminDashboard";
+import AdminHome from "./pages/admin/AdminHome";
+import ManageOrganizers from "./pages/admin/ManageOrganizers";
 import AppNav from "./components/AppNav";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -25,7 +26,8 @@ export default function App() {
         </Route>
 
         <Route element={<ProtectedRoute roles={["admin"]} />}>
-          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin" element={<AdminHome />} />
+          <Route path="/admin/organizers" element={<ManageOrganizers />} />
         </Route>
       </Routes>
     </BrowserRouter>

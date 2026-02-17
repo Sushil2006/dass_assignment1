@@ -25,7 +25,7 @@ const roleMenus: Record<AuthUser["role"], NavItem[]> = {
   ],
   admin: [
     { label: "Dashboard", to: "/admin" },
-    { label: "Manage Clubs/Organizers", to: "/admin" },
+    { label: "Manage Clubs/Organizers", to: "/admin/organizers" },
     { label: "Password Reset Requests", to: "/admin" },
   ],
 };

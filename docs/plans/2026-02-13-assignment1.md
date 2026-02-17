@@ -104,8 +104,6 @@ Each milestone ends with `npm run typecheck` (backend) and `npm run build` (fron
    - Files: `backend/src/routes/auth.ts`, `backend/src/middleware/auth.ts`
 4. Add change-password endpoint.
    - Files: `backend/src/routes/security.ts`, `backend/src/routes/index.ts`
-5. Add `.env.example` files.
-   - Files: `backend/.env.example`, `frontend/.env.example`
 
 **Note**
 - CSRF hardening is optional for coursework unless explicitly required by evaluator; keep as short README note, not a blocker milestone.
