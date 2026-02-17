@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getDb } from "../db/client";
 import { collections } from "../db/collections";
 import { requireAuth, requireRole } from "../middleware/auth";
+import type { RegistrationDoc } from "../db/models";
 
 export const eventsRouter = Router();
 
@@ -15,9 +16,17 @@ const persistedEventStatuses = [
   "COMPLETED",
 ] as const;
 
+const publicQueryStatuses = ["PUBLISHED", "CLOSED", "COMPLETED", "ONGOING"] as const;
+const publicPersistedStatuses: PersistedEventStatus[] = [
+  "PUBLISHED",
+  "CLOSED",
+  "COMPLETED",
+];
+
 type EventType = (typeof eventTypes)[number];
 type PersistedEventStatus = (typeof persistedEventStatuses)[number];
 type DisplayEventStatus = PersistedEventStatus | "ONGOING";
+type PublicQueryStatus = (typeof publicQueryStatuses)[number];
 
 type StoredEventDoc = {
   _id: ObjectId;
@@ -211,6 +220,25 @@ const updateEventStatusSchema = z.object({
   status: z.enum(persistedEventStatuses),
 });
 
+const publicEventsQuerySchema = z
+  .object({
+    q: z.string().trim().min(1).max(120).optional(),
+    type: z.enum(eventTypes).optional(),
+    eligibility: z.string().trim().min(1).max(160).optional(),
+    status: z.enum(publicQueryStatuses).optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.from && data.to && data.to < data.from) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["to"],
+        message: "to must be greater than or equal to from",
+      });
+    }
+  });
+
 function parseObjectId(rawId: unknown): ObjectId | null {
   if (typeof rawId !== "string") return null;
   if (!ObjectId.isValid(rawId)) return null;
@@ -219,6 +247,50 @@ function parseObjectId(rawId: unknown): ObjectId | null {
 
 function getOrganizerObjectId(userId: string): ObjectId | null {
   return parseObjectId(userId);
+}
+
+function readQueryStringValue(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+  return undefined;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildPublicEventsFilter(query: z.infer<typeof publicEventsQuerySchema>) {
+  const filter: Record<string, unknown> = {};
+
+  if (query.status === "ONGOING") {
+    filter.status = "PUBLISHED";
+  } else if (query.status) {
+    filter.status = query.status;
+  } else {
+    filter.status = { $in: publicPersistedStatuses };
+  }
+
+  if (query.type) {
+    filter.type = query.type;
+  }
+
+  if (query.eligibility) {
+    filter.eligibility = new RegExp(`^${escapeRegex(query.eligibility)}$`, "i");
+  }
+
+  if (query.q) {
+    const qRegex = new RegExp(escapeRegex(query.q), "i");
+    filter.$or = [{ name: qRegex }, { description: qRegex }, { tags: qRegex }];
+  }
+
+  if (query.from || query.to) {
+    const startDateFilter: Record<string, Date> = {};
+    if (query.from) startDateFilter.$gte = query.from;
+    if (query.to) startDateFilter.$lte = query.to;
+    filter.startDate = startDateFilter;
+  }
+
+  return filter;
 }
 
 function deriveDisplayStatus(
@@ -276,6 +348,20 @@ function toEventResponse(event: StoredEventDoc) {
     updatedAt: event.updatedAt,
     normalForm: sanitizeNormalFormByType(event.type, event.normalForm),
     merchConfig: sanitizeMerchConfigByType(event.type, event.merchConfig),
+  };
+}
+
+function canRegisterNow(event: StoredEventDoc, now: Date): boolean {
+  if (event.status !== "PUBLISHED") return false;
+  if (now > event.regDeadline) return false;
+  if (now > event.endDate) return false;
+  return true;
+}
+
+function toPublicEventResponse(event: StoredEventDoc) {
+  return {
+    ...toEventResponse(event),
+    canRegister: canRegisterNow(event, new Date()),
   };
 }
 
@@ -736,3 +822,125 @@ eventsRouter.delete(
     }
   },
 );
+
+eventsRouter.get("/", async (req, res, next) => {
+  try {
+    const parsed = publicEventsQuerySchema.safeParse({
+      q: readQueryStringValue(req.query.q),
+      type: readQueryStringValue(req.query.type),
+      eligibility: readQueryStringValue(req.query.eligibility),
+      status: readQueryStringValue(req.query.status),
+      from: readQueryStringValue(req.query.from),
+      to: readQueryStringValue(req.query.to),
+    });
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: { message: "Invalid query", details: parsed.error.flatten() },
+      });
+    }
+
+    const db = getDb();
+    const events = db.collection<StoredEventDoc>(collections.events);
+    const filter = buildPublicEventsFilter(parsed.data);
+    const foundEvents = await events
+      .find(filter)
+      .sort({ startDate: 1, createdAt: -1 })
+      .toArray();
+
+    const filteredEvents =
+      parsed.data.status === "ONGOING"
+        ? foundEvents.filter(
+            (event) => deriveDisplayStatus(event, new Date()) === "ONGOING",
+          )
+        : foundEvents;
+
+    return res.json({ events: filteredEvents.map(toPublicEventResponse) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+eventsRouter.get("/trending", async (_req, res, next) => {
+  try {
+    const db = getDb();
+    const registrations = db.collection<RegistrationDoc>(collections.registrations);
+    const events = db.collection<StoredEventDoc>(collections.events);
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const topRegistrations = await registrations
+      .aggregate<{ _id: ObjectId; registrations24h: number }>([
+        {
+          $match: {
+            createdAt: { $gte: since },
+            status: { $nin: ["cancelled", "rejected"] },
+          },
+        },
+        {
+          $group: {
+            _id: "$eventId",
+            registrations24h: { $sum: 1 },
+          },
+        },
+        { $sort: { registrations24h: -1 } },
+        { $limit: 5 },
+      ])
+      .toArray();
+
+    if (topRegistrations.length === 0) {
+      return res.json({ events: [] });
+    }
+
+    const eventIds = topRegistrations.map((row) => row._id);
+    const topEvents = await events
+      .find({
+        _id: { $in: eventIds },
+        status: { $in: publicPersistedStatuses },
+      })
+      .toArray();
+
+    const eventsById = new Map(
+      topEvents.map((event) => [event._id.toString(), event]),
+    );
+
+    const ordered = topRegistrations
+      .map((row) => {
+        const event = eventsById.get(row._id.toString());
+        if (!event) return null;
+
+        return {
+          ...toPublicEventResponse(event),
+          registrations24h: row.registrations24h,
+        };
+      })
+      .filter((event): event is NonNullable<typeof event> => event !== null);
+
+    return res.json({ events: ordered });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+eventsRouter.get("/:eventId", async (req, res, next) => {
+  try {
+    const eventId = parseObjectId(req.params.eventId);
+    if (!eventId) {
+      return res.status(400).json({ error: { message: "Invalid event id" } });
+    }
+
+    const db = getDb();
+    const events = db.collection<StoredEventDoc>(collections.events);
+    const event = await events.findOne({
+      _id: eventId,
+      status: { $in: publicPersistedStatuses },
+    });
+
+    if (!event) {
+      return res.status(404).json({ error: { message: "Event not found" } });
+    }
+
+    return res.json({ event: toPublicEventResponse(event) });
+  } catch (err) {
+    return next(err);
+  }
+});
