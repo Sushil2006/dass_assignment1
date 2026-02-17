@@ -35,7 +35,98 @@ type StoredEventDoc = {
   status: PersistedEventStatus;
   createdAt: Date;
   updatedAt?: Date;
+  normalForm?:
+    | {
+        fields: NormalFormField[];
+        isFormLocked: boolean;
+      }
+    | undefined;
+  merchConfig?:
+    | {
+        variants: MerchVariant[];
+        perParticipantLimit: number;
+        totalStock: number;
+      }
+    | undefined;
 };
+
+type NormalFormFieldType =
+  | "text"
+  | "textarea"
+  | "number"
+  | "select"
+  | "checkbox"
+  | "file";
+
+type NormalFormField = {
+  key: string;
+  label: string;
+  type: NormalFormFieldType;
+  required: boolean;
+  options?: string[] | undefined;
+  order: number;
+}; // for typescript type-checks
+
+type MerchVariant = {
+  sku: string;
+  label: string;
+  stock: number;
+  priceDelta?: number | undefined;
+};
+
+const normalFormFieldTypes = [
+  "text",
+  "textarea",
+  "number",
+  "select",
+  "checkbox",
+  "file",
+] as const; // for zod runtime checks
+
+const normalFormFieldSchema = z
+  .object({
+    key: z.string().trim().min(1).max(80),
+    label: z.string().trim().min(1).max(120),
+    type: z.enum(normalFormFieldTypes),
+    required: z.boolean().default(false),
+    options: z.array(z.string().trim().min(1).max(80)).max(40).optional(),
+    order: z.number().int().min(0),
+  })
+  .superRefine((field, ctx) => {
+    const needsOptions = field.type === "select" || field.type === "checkbox";
+    if (needsOptions && (!field.options || field.options.length === 0)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["options"],
+        message: "options are required for select/checkbox fields",
+      });
+    }
+
+    if (!needsOptions && field.options && field.options.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["options"],
+        message: "options are only allowed for select/checkbox fields",
+      });
+    }
+  });
+
+const normalFormSchema = z.object({
+  fields: z.array(normalFormFieldSchema).max(60).default([]),
+  isFormLocked: z.boolean().default(false),
+});
+
+const merchVariantSchema = z.object({
+  sku: z.string().trim().min(1).max(60),
+  label: z.string().trim().min(1).max(120),
+  stock: z.number().int().min(0),
+  priceDelta: z.number().optional(),
+});
+
+const merchConfigSchema = z.object({
+  variants: z.array(merchVariantSchema).min(1).max(200),
+  perParticipantLimit: z.number().int().min(1).max(1000).default(1),
+});
 
 const createEventSchema = z
   .object({
@@ -49,6 +140,8 @@ const createEventSchema = z
     regLimit: z.number().int().min(1).default(1),
     startDate: z.coerce.date(),
     endDate: z.coerce.date(),
+    normalForm: normalFormSchema.optional(),
+    merchConfig: merchConfigSchema.optional(),
   })
   .superRefine((data, ctx) => {
     if (data.endDate <= data.startDate) {
@@ -65,6 +158,38 @@ const createEventSchema = z
         message: "regDeadline must be before or equal to startDate",
       });
     }
+
+    if (data.type === "NORMAL" && data.merchConfig) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["merchConfig"],
+        message: "merchConfig is not allowed for NORMAL events",
+      });
+    }
+
+    if (data.type === "MERCH" && data.normalForm) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["normalForm"],
+        message: "normalForm is not allowed for MERCH events",
+      });
+    }
+
+    if (data.type === "MERCH" && !data.merchConfig) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["merchConfig"],
+        message: "merchConfig is required for MERCH events",
+      });
+    }
+
+    if (data.type === "NORMAL" && !data.normalForm) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["normalForm"],
+        message: "normalForm is required for NORMAL events",
+      });
+    }
   });
 
 const updateEventSchema = z.object({
@@ -78,6 +203,8 @@ const updateEventSchema = z.object({
   regLimit: z.number().int().min(1).optional(),
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
+  normalForm: normalFormSchema.optional(),
+  merchConfig: merchConfigSchema.optional(),
 });
 
 const updateEventStatusSchema = z.object({
@@ -109,6 +236,26 @@ function deriveDisplayStatus(
   return event.status;
 }
 
+function sanitizeNormalFormByType(
+  eventType: EventType,
+  normalForm: StoredEventDoc["normalForm"],
+): StoredEventDoc["normalForm"] {
+  if (eventType !== "NORMAL") return undefined;
+  return normalForm;
+}
+
+function sanitizeMerchConfigByType(
+  eventType: EventType,
+  merchConfig: StoredEventDoc["merchConfig"],
+): StoredEventDoc["merchConfig"] {
+  if (eventType !== "MERCH") return undefined;
+  return merchConfig;
+}
+
+function countTotalStock(variants: MerchVariant[]): number {
+  return variants.reduce((sum, variant) => sum + variant.stock, 0);
+}
+
 function toEventResponse(event: StoredEventDoc) {
   return {
     id: event._id.toString(),
@@ -127,6 +274,8 @@ function toEventResponse(event: StoredEventDoc) {
     displayStatus: deriveDisplayStatus(event, new Date()),
     createdAt: event.createdAt,
     updatedAt: event.updatedAt,
+    normalForm: sanitizeNormalFormByType(event.type, event.normalForm),
+    merchConfig: sanitizeMerchConfigByType(event.type, event.merchConfig),
   };
 }
 
@@ -180,6 +329,22 @@ eventsRouter.post(
         status: "DRAFT",
         createdAt: now,
         updatedAt: now,
+        normalForm:
+          parsed.data.type === "NORMAL"
+            ? {
+                fields: parsed.data.normalForm?.fields ?? [],
+                isFormLocked: parsed.data.normalForm?.isFormLocked ?? false,
+              }
+            : undefined,
+        merchConfig:
+          parsed.data.type === "MERCH" && parsed.data.merchConfig
+            ? {
+                variants: parsed.data.merchConfig.variants,
+                perParticipantLimit:
+                  parsed.data.merchConfig.perParticipantLimit,
+                totalStock: countTotalStock(parsed.data.merchConfig.variants),
+              }
+            : undefined,
       };
 
       await events.insertOne(event);
@@ -331,6 +496,49 @@ eventsRouter.patch(
         });
       }
 
+      const nextType = parsed.data.type ?? existing.type;
+      const nextNormalForm =
+        parsed.data.normalForm !== undefined
+          ? parsed.data.normalForm
+          : existing.normalForm;
+      const nextMerchConfig =
+        parsed.data.merchConfig !== undefined
+          ? parsed.data.merchConfig
+          : existing.merchConfig
+            ? {
+                variants: existing.merchConfig.variants,
+                perParticipantLimit: existing.merchConfig.perParticipantLimit,
+              }
+            : undefined;
+
+      if (nextType === "NORMAL") {
+        if (!nextNormalForm) {
+          return res.status(400).json({
+            error: { message: "normalForm is required for NORMAL events" },
+          });
+        }
+
+        if (nextMerchConfig) {
+          return res.status(400).json({
+            error: { message: "merchConfig is not allowed for NORMAL events" },
+          });
+        }
+      }
+
+      if (nextType === "MERCH") {
+        if (!nextMerchConfig) {
+          return res.status(400).json({
+            error: { message: "merchConfig is required for MERCH events" },
+          });
+        }
+
+        if (nextNormalForm) {
+          return res.status(400).json({
+            error: { message: "normalForm is not allowed for MERCH events" },
+          });
+        }
+      }
+
       const updatedAt = new Date();
       const updatePayload: Partial<StoredEventDoc> = { updatedAt };
 
@@ -356,6 +564,50 @@ eventsRouter.patch(
       }
       if (parsed.data.endDate !== undefined)
         updatePayload.endDate = parsed.data.endDate;
+
+      if (parsed.data.normalForm !== undefined) {
+        updatePayload.normalForm =
+          nextType === "NORMAL"
+            ? {
+                fields: parsed.data.normalForm.fields,
+                isFormLocked: parsed.data.normalForm.isFormLocked,
+              }
+            : undefined;
+      }
+
+      if (parsed.data.merchConfig !== undefined) {
+        updatePayload.merchConfig =
+          nextType === "MERCH"
+            ? {
+                variants: parsed.data.merchConfig.variants,
+                perParticipantLimit:
+                  parsed.data.merchConfig.perParticipantLimit,
+                totalStock: countTotalStock(parsed.data.merchConfig.variants),
+              }
+            : undefined;
+      }
+
+      if (parsed.data.type !== undefined) {
+        if (parsed.data.type === "NORMAL") {
+          updatePayload.merchConfig = undefined;
+          updatePayload.normalForm = {
+            fields: nextNormalForm?.fields ?? [],
+            isFormLocked: nextNormalForm?.isFormLocked ?? false,
+          };
+        }
+
+        if (parsed.data.type === "MERCH") {
+          updatePayload.normalForm = undefined;
+          const merchSource = nextMerchConfig;
+          updatePayload.merchConfig = merchSource
+            ? {
+                variants: merchSource.variants,
+                perParticipantLimit: merchSource.perParticipantLimit,
+                totalStock: countTotalStock(merchSource.variants),
+              }
+            : undefined;
+        }
+      }
 
       await events.updateOne(
         { _id: eventId, organizerId },
