@@ -53,7 +53,7 @@ export default function AppNav() {
     } finally {
       setUser(null);
       navigate("/login", { replace: true });
-    }
+    } 
   }
 
   // Compute role menu once the user is known.
