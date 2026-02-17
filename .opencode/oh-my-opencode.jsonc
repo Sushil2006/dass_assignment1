@@ -3,12 +3,4 @@
   "sisyphus_agent": {
     "disabled": true,
   },
-  "agents": {
-    "build": {
-      "permission": {
-        "edit": "deny",
-      },
-    },
-  },
-  "disabled_tools": ["edit", "write", "apply_patch", "lsp_rename"],
 }

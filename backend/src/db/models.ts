@@ -5,6 +5,12 @@ export type UserRole = (typeof userRoles)[number]; // (typeof userRoles)[number]
 // can use later like:
 // const user: UserRole = "participant";
 
+export const participantTypes = ["iiit", "non-iiit"] as const;
+export type ParticipantType = (typeof participantTypes)[number];
+
+export const accountStatuses = ["active", "disabled"] as const;
+export type AccountStatus = (typeof accountStatuses)[number];
+
 export type UserDoc = {
   _id: ObjectId;
   email: string;
@@ -12,6 +18,11 @@ export type UserDoc = {
   role: UserRole;
   name: string;
   createdAt: Date;
+  participantType?: ParticipantType;
+  collegeOrOrganization?: string;
+  contactNumber?: string;
+  accountStatus?: AccountStatus;
+  isDisabled?: boolean;
 };
 
 export type UserInsert = Omit<UserDoc, "_id">; // removes the _id attribute

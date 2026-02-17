@@ -4,6 +4,7 @@ import { app } from "./app";
 import { env } from "./config/env";
 import { connectDb } from "./db/client";
 import { ensureDbIndexes } from "./db/indexes";
+import { seedFirstAdmin } from "./startup/seedAdmin";
 
 async function main() {
   const uploadDirPath = path.resolve(process.cwd(), env.UPLOAD_DIR);
@@ -11,6 +12,7 @@ async function main() {
 
   await connectDb();
   await ensureDbIndexes();
+  await seedFirstAdmin();
 
   app.listen(env.PORT, () => {
     console.log(`API listening on http://localhost:${env.PORT}`);

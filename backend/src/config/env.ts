@@ -8,6 +8,24 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32, "JWT_SECRET should be at least 32 characters"),
   CLIENT_ORIGIN: z.string().url(),
   UPLOAD_DIR: z.string().min(1).default("./uploads"),
+
+  IIIT_EMAIL_DOMAINS: z
+    .string()
+    .default("iiit.ac.in")
+    .transform((raw) =>
+      raw
+        .split(",")
+        .map((domain) => domain.trim().toLowerCase())
+        .filter((domain) => domain.length > 0),
+    )
+    .refine(
+      (domains) => domains.length > 0,
+      "IIIT_EMAIL_DOMAINS must contain at least one domain",
+    ),
+
+  ADMIN_EMAIL: z.string().email().optional(),
+  ADMIN_PASSWORD: z.string().min(8).optional(),
+  ADMIN_NAME: z.string().min(1).default("System Admin"),
 });
 
 const parsed = envSchema.safeParse(process.env);

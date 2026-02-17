@@ -1,19 +1,28 @@
 import { Router } from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
+import { env } from "../config/env";
 import { getDb } from "../db/client";
 import { hashPassword, verifyPassword } from "../utils/password";
 import { signJwt, verifyJwt } from "../utils/jwt";
 import { AUTH_COOKIE_NAME, authCookieOptions } from "../config/cookies";
-import { userRoles, type UserDoc } from "../db/models";
+import {
+  participantTypes,
+  userRoles,
+  type ParticipantType,
+  type UserDoc,
+} from "../db/models";
 
 export const authRouter = Router();
 
 const signupSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().trim().min(1),
   email: z.email(),
   password: z.string().min(8),
-  role: z.enum(userRoles),
+  role: z.enum(userRoles).default("participant"),
+  participantType: z.enum(participantTypes).optional(),
+  collegeOrOrganization: z.string().trim().min(2).max(120).optional(),
+  contactNumber: z.string().trim().min(7).max(20).optional(),
 });
 
 const loginSchema = z.object({
@@ -38,6 +47,14 @@ function toPublicUser(user: {
   };
 }
 
+function isIiitEmail(email: string): boolean {
+  const domain = email.split("@")[1]?.toLowerCase() ?? "";
+
+  return env.IIIT_EMAIL_DOMAINS.some(
+    (allowedDomain) => domain === allowedDomain,
+  );
+}
+
 authRouter.post("/signup", async (req, res, next) => {
   try {
     const parsed = signupSchema.safeParse(req.body);
@@ -49,34 +66,76 @@ authRouter.post("/signup", async (req, res, next) => {
 
     const db = getDb();
     const users = db.collection<UserDoc>("users");
-    const { name, email, password, role } = parsed.data;
+    const { name, password, collegeOrOrganization, contactNumber } =
+      parsed.data;
 
-    if (role !== "participant") {
+    const normalizedEmail = parsed.data.email.toLowerCase().trim();
+    const isIiitDomainEmail = isIiitEmail(normalizedEmail);
+
+    if (parsed.data.role !== "participant") {
       return res
         .status(403)
         .json({ error: { message: "Only participant signup is allowed" } });
     }
 
+    const requestedType = parsed.data.participantType;
+    const participantType: ParticipantType =
+      requestedType ?? (isIiitDomainEmail ? "iiit" : "non-iiit");
+
+    if (participantType === "iiit" && !isIiitDomainEmail) {
+      return res.status(400).json({
+        error: {
+          message:
+            "IIIT participant signup requires an IIIT-issued email address",
+        },
+      });
+    }
+
+    if (requestedType === "non-iiit" && isIiitDomainEmail) {
+      return res.status(400).json({
+        error: {
+          message:
+            "IIIT-issued email should register as participantType='iiit'",
+        },
+      });
+    }
+
     const passwordHash = await hashPassword(password);
     const createdAt = new Date();
 
-    const insertResult = await users.insertOne({
+    const userToInsert: UserDoc = {
       _id: new ObjectId(),
-      name,
-      email: email.toLowerCase(),
+      name: name.trim(),
+      email: normalizedEmail,
       passwordHash,
-      role,
+      role: "participant",
+      participantType,
+      accountStatus: "active",
+      isDisabled: false,
       createdAt,
-    });
+    };
 
-    const token = signJwt({ userId: insertResult.insertedId.toString(), role });
+    if (collegeOrOrganization?.trim()) {
+      userToInsert.collegeOrOrganization = collegeOrOrganization.trim();
+    }
+
+    if (contactNumber?.trim()) {
+      userToInsert.contactNumber = contactNumber.trim();
+    }
+
+    const insertResult = await users.insertOne(userToInsert);
+
+    const token = signJwt({
+      userId: insertResult.insertedId.toString(),
+      role: "participant",
+    });
     res.cookie(AUTH_COOKIE_NAME, token, authCookieOptions);
 
     const user = {
       _id: insertResult.insertedId,
-      name,
-      email: email.toLowerCase(),
-      role,
+      name: name.trim(),
+      email: normalizedEmail,
+      role: "participant",
       createdAt,
     };
 
