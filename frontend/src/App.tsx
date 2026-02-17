@@ -3,6 +3,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ParticipantDashboard from "./pages/ParticipantDashboard";
 import OrganizerDashboard from "./pages/OrganizerDashboard";
+import CreateEventWizard from "./pages/organizer/CreateEventWizard";
 import AdminHome from "./pages/admin/AdminHome";
 import ManageOrganizers from "./pages/admin/ManageOrganizers";
 import AppNav from "./components/AppNav";
@@ -23,6 +24,7 @@ export default function App() {
 
         <Route element={<ProtectedRoute roles={["organizer"]} />}>
           <Route path="/organizer" element={<OrganizerDashboard />} />
+          <Route path="/organizer/events/new" element={<CreateEventWizard />} />
         </Route>
 
         <Route element={<ProtectedRoute roles={["admin"]} />}>

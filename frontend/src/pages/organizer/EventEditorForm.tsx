@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Alert, Button, Col, Form, Row } from "react-bootstrap";
+import { useState } from "react";
+import { Alert, Button, Card, Col, Form, Row } from "react-bootstrap";
 
 export type EventType = "NORMAL" | "MERCH";
 
@@ -59,30 +59,35 @@ type EventEditorFormProps = {
   onSubmit: (values: EventEditorValues) => Promise<void> | void;
 };
 
-const defaultNormalFormConfig: NormalFormConfig = {
-  fields: [
-    {
-      key: "fullName",
-      label: "Full Name",
-      type: "text",
-      required: true,
-      order: 0,
-    },
-  ],
-  isFormLocked: false,
+type NormalFieldDraft = {
+  uiId: string;
+  key: string;
+  label: string;
+  type: NormalFormFieldType;
+  required: boolean;
+  optionsText: string;
 };
 
-const defaultMerchConfig: MerchConfig = {
-  variants: [
-    {
-      sku: "TSHIRT-BLACK-M",
-      label: "Black Tee - M",
-      stock: 25,
-      priceDelta: 0,
-    },
-  ],
-  perParticipantLimit: 1,
+type MerchVariantDraft = {
+  uiId: string;
+  sku: string;
+  label: string;
+  stock: string;
+  priceDelta: string;
 };
+
+const normalFieldTypes: NormalFormFieldType[] = [
+  "text",
+  "textarea",
+  "number",
+  "select",
+  "checkbox",
+  "file",
+];
+
+function createUiId(prefix: string): string {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 function toDateTimeLocalValue(rawValue?: string): string {
   if (!rawValue) return "";
@@ -94,13 +99,70 @@ function toDateTimeLocalValue(rawValue?: string): string {
   return adjusted.toISOString().slice(0, 16);
 }
 
+function buildInitialNormalFields(
+  initialValues?: Partial<EventEditorValues>,
+): NormalFieldDraft[] {
+  const source = initialValues?.normalForm?.fields;
+
+  if (!source || source.length === 0) {
+    return [
+      {
+        uiId: createUiId("normal-field"),
+        key: "fullName",
+        label: "Full Name",
+        type: "text",
+        required: true,
+        optionsText: "",
+      },
+    ];
+  }
+
+  return source
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((field) => ({
+      uiId: createUiId("normal-field"),
+      key: field.key,
+      label: field.label,
+      type: field.type,
+      required: field.required,
+      optionsText: field.options?.join(", ") ?? "",
+    }));
+}
+
+function buildInitialMerchVariants(
+  initialValues?: Partial<EventEditorValues>,
+): MerchVariantDraft[] {
+  const source = initialValues?.merchConfig?.variants;
+
+  if (!source || source.length === 0) {
+    return [
+      {
+        uiId: createUiId("merch-variant"),
+        sku: "TSHIRT-BLACK-M",
+        label: "Black Tee - M",
+        stock: "25",
+        priceDelta: "0",
+      },
+    ];
+  }
+
+  return source.map((variant) => ({
+    uiId: createUiId("merch-variant"),
+    sku: variant.sku,
+    label: variant.label,
+    stock: String(variant.stock),
+    priceDelta:
+      typeof variant.priceDelta === "number" ? String(variant.priceDelta) : "",
+  }));
+}
+
 export default function EventEditorForm({
   initialValues,
   submitLabel = "Save Event",
   busy = false,
   onSubmit,
 }: EventEditorFormProps) {
-  // keep core event fields in local form state
   const [name, setName] = useState(initialValues?.name ?? "");
   const [description, setDescription] = useState(initialValues?.description ?? "");
   const [type, setType] = useState<EventType>(initialValues?.type ?? "NORMAL");
@@ -116,23 +178,74 @@ export default function EventEditorForm({
   );
   const [endDate, setEndDate] = useState(toDateTimeLocalValue(initialValues?.endDate));
 
-  // keep nested configs editable as json text for quick iteration
-  const [normalFormText, setNormalFormText] = useState(
-    JSON.stringify(initialValues?.normalForm ?? defaultNormalFormConfig, null, 2),
+  const [normalFields, setNormalFields] = useState<NormalFieldDraft[]>(
+    buildInitialNormalFields(initialValues),
   );
-  const [merchConfigText, setMerchConfigText] = useState(
-    JSON.stringify(initialValues?.merchConfig ?? defaultMerchConfig, null, 2),
+  const [isFormLocked, setIsFormLocked] = useState(
+    initialValues?.normalForm?.isFormLocked ?? false,
+  );
+
+  const [merchVariants, setMerchVariants] = useState<MerchVariantDraft[]>(
+    buildInitialMerchVariants(initialValues),
+  );
+  const [perParticipantLimit, setPerParticipantLimit] = useState(
+    String(initialValues?.merchConfig?.perParticipantLimit ?? 1),
   );
 
   const [error, setError] = useState<string | null>(null);
 
-  const currentConfigHint = useMemo(() => {
-    if (type === "NORMAL") {
-      return "normalForm must define fields[] and isFormLocked";
-    }
+  function updateNormalField(index: number, patch: Partial<NormalFieldDraft>) {
+    setNormalFields((prev) =>
+      prev.map((field, fieldIndex) =>
+        fieldIndex === index ? { ...field, ...patch } : field,
+      ),
+    );
+  }
 
-    return "merchConfig must define variants[] and perParticipantLimit";
-  }, [type]);
+  function removeNormalField(index: number) {
+    setNormalFields((prev) => prev.filter((_, fieldIndex) => fieldIndex !== index));
+  }
+
+  function addNormalField() {
+    setNormalFields((prev) => [
+      ...prev,
+      {
+        uiId: createUiId("normal-field"),
+        key: `field_${prev.length + 1}`,
+        label: "",
+        type: "text",
+        required: false,
+        optionsText: "",
+      },
+    ]);
+  }
+
+  function updateMerchVariant(index: number, patch: Partial<MerchVariantDraft>) {
+    setMerchVariants((prev) =>
+      prev.map((variant, variantIndex) =>
+        variantIndex === index ? { ...variant, ...patch } : variant,
+      ),
+    );
+  }
+
+  function removeMerchVariant(index: number) {
+    setMerchVariants((prev) =>
+      prev.filter((_, variantIndex) => variantIndex !== index),
+    );
+  }
+
+  function addMerchVariant() {
+    setMerchVariants((prev) => [
+      ...prev,
+      {
+        uiId: createUiId("merch-variant"),
+        sku: "",
+        label: "",
+        stock: "0",
+        priceDelta: "",
+      },
+    ]);
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -159,18 +272,104 @@ export default function EventEditorForm({
     let normalForm: NormalFormConfig | undefined;
     let merchConfig: MerchConfig | undefined;
 
-    // parse only the type-specific config that will be sent
-    try {
-      if (type === "NORMAL") {
-        normalForm = JSON.parse(normalFormText) as NormalFormConfig;
+    if (type === "NORMAL") {
+      if (normalFields.length === 0) {
+        setError("Add at least one form field for a NORMAL event.");
+        return;
       }
 
-      if (type === "MERCH") {
-        merchConfig = JSON.parse(merchConfigText) as MerchConfig;
+      const builtFields: NormalFormField[] = [];
+
+      for (let index = 0; index < normalFields.length; index += 1) {
+        const field = normalFields[index];
+        const key = field.key.trim();
+        const label = field.label.trim();
+
+        if (!key || !label) {
+          setError("Each normal form field needs a key and label.");
+          return;
+        }
+
+        const needsOptions = field.type === "select" || field.type === "checkbox";
+        const options = field.optionsText
+          .split(",")
+          .map((option) => option.trim())
+          .filter((option) => option.length > 0);
+
+        if (needsOptions && options.length === 0) {
+          setError("Select/checkbox fields need at least one option.");
+          return;
+        }
+
+        builtFields.push({
+          key,
+          label,
+          type: field.type,
+          required: field.required,
+          order: index,
+          options: needsOptions ? options : undefined,
+        });
       }
-    } catch {
-      setError("Invalid JSON in type-specific config.");
-      return;
+
+      normalForm = {
+        fields: builtFields,
+        isFormLocked,
+      };
+    }
+
+    if (type === "MERCH") {
+      const parsedPerParticipantLimit = Number(perParticipantLimit);
+      if (
+        !Number.isInteger(parsedPerParticipantLimit) ||
+        parsedPerParticipantLimit < 1
+      ) {
+        setError("Per participant limit must be an integer greater than 0.");
+        return;
+      }
+
+      if (merchVariants.length === 0) {
+        setError("Add at least one merch variant for a MERCH event.");
+        return;
+      }
+
+      const builtVariants: MerchVariantConfig[] = [];
+
+      for (const variant of merchVariants) {
+        const sku = variant.sku.trim();
+        const label = variant.label.trim();
+        const stock = Number(variant.stock);
+
+        if (!sku || !label) {
+          setError("Each merch variant needs SKU and label.");
+          return;
+        }
+
+        if (!Number.isInteger(stock) || stock < 0) {
+          setError("Variant stock must be an integer 0 or higher.");
+          return;
+        }
+
+        let parsedPriceDelta: number | undefined;
+        if (variant.priceDelta.trim() !== "") {
+          parsedPriceDelta = Number(variant.priceDelta);
+          if (Number.isNaN(parsedPriceDelta)) {
+            setError("Price delta must be a valid number when provided.");
+            return;
+          }
+        }
+
+        builtVariants.push({
+          sku,
+          label,
+          stock,
+          priceDelta: parsedPriceDelta,
+        });
+      }
+
+      merchConfig = {
+        variants: builtVariants,
+        perParticipantLimit: parsedPerParticipantLimit,
+      };
     }
 
     const values: EventEditorValues = {
@@ -204,7 +403,7 @@ export default function EventEditorForm({
             <Form.Label>Event Name</Form.Label>
             <Form.Control
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(currentEvent) => setName(currentEvent.target.value)}
               placeholder="e.g. AI Workshop 2026"
               required
             />
@@ -216,7 +415,9 @@ export default function EventEditorForm({
             <Form.Label>Type</Form.Label>
             <Form.Select
               value={type}
-              onChange={(event) => setType(event.target.value as EventType)}
+              onChange={(currentEvent) =>
+                setType(currentEvent.target.value as EventType)
+              }
             >
               <option value="NORMAL">NORMAL</option>
               <option value="MERCH">MERCH</option>
@@ -231,7 +432,7 @@ export default function EventEditorForm({
               as="textarea"
               rows={3}
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={(currentEvent) => setDescription(currentEvent.target.value)}
               required
             />
           </Form.Group>
@@ -242,7 +443,7 @@ export default function EventEditorForm({
             <Form.Label>Tags (comma separated)</Form.Label>
             <Form.Control
               value={tagsText}
-              onChange={(event) => setTagsText(event.target.value)}
+              onChange={(currentEvent) => setTagsText(currentEvent.target.value)}
               placeholder="tech, workshop, beginner"
             />
           </Form.Group>
@@ -253,7 +454,7 @@ export default function EventEditorForm({
             <Form.Label>Eligibility</Form.Label>
             <Form.Control
               value={eligibility}
-              onChange={(event) => setEligibility(event.target.value)}
+              onChange={(currentEvent) => setEligibility(currentEvent.target.value)}
               placeholder="all / iiit / non-iiit"
               required
             />
@@ -268,7 +469,7 @@ export default function EventEditorForm({
               min={0}
               step="0.01"
               value={regFee}
-              onChange={(event) => setRegFee(event.target.value)}
+              onChange={(currentEvent) => setRegFee(currentEvent.target.value)}
               required
             />
           </Form.Group>
@@ -282,7 +483,7 @@ export default function EventEditorForm({
               min={1}
               step={1}
               value={regLimit}
-              onChange={(event) => setRegLimit(event.target.value)}
+              onChange={(currentEvent) => setRegLimit(currentEvent.target.value)}
               required
             />
           </Form.Group>
@@ -294,7 +495,7 @@ export default function EventEditorForm({
             <Form.Control
               type="datetime-local"
               value={regDeadline}
-              onChange={(event) => setRegDeadline(event.target.value)}
+              onChange={(currentEvent) => setRegDeadline(currentEvent.target.value)}
               required
             />
           </Form.Group>
@@ -306,7 +507,7 @@ export default function EventEditorForm({
             <Form.Control
               type="datetime-local"
               value={startDate}
-              onChange={(event) => setStartDate(event.target.value)}
+              onChange={(currentEvent) => setStartDate(currentEvent.target.value)}
               required
             />
           </Form.Group>
@@ -318,32 +519,255 @@ export default function EventEditorForm({
             <Form.Control
               type="datetime-local"
               value={endDate}
-              onChange={(event) => setEndDate(event.target.value)}
+              onChange={(currentEvent) => setEndDate(currentEvent.target.value)}
               required
             />
           </Form.Group>
         </Col>
 
-        <Col xs={12}>
-          <Form.Group controlId="event-type-config">
-            <Form.Label>{type === "NORMAL" ? "Normal Form JSON" : "Merch Config JSON"}</Form.Label>
-            <Form.Text className="d-block mb-2 text-muted">{currentConfigHint}</Form.Text>
-            <Form.Control
-              as="textarea"
-              rows={10}
-              value={type === "NORMAL" ? normalFormText : merchConfigText}
-              onChange={(event) => {
-                if (type === "NORMAL") {
-                  setNormalFormText(event.target.value);
-                  return;
-                }
+        {type === "NORMAL" ? (
+          <Col xs={12}>
+            <Card className="border">
+              <Card.Body>
+                <Card.Title className="h6">Normal Event Form Builder</Card.Title>
 
-                setMerchConfigText(event.target.value);
-              }}
-              required
-            />
-          </Form.Group>
-        </Col>
+                <Form.Check
+                  className="mb-3"
+                  type="switch"
+                  id="normal-form-locked"
+                  label="Lock form after first registration"
+                  checked={isFormLocked}
+                  onChange={(currentEvent) => setIsFormLocked(currentEvent.target.checked)}
+                />
+
+                {normalFields.map((field, index) => {
+                  const needsOptions =
+                    field.type === "select" || field.type === "checkbox";
+
+                  return (
+                    <Card key={field.uiId} className="mb-3 border">
+                      <Card.Body>
+                        <Row className="g-2 align-items-end">
+                          <Col md={3}>
+                            <Form.Group controlId={`normal-field-key-${index}`}>
+                              <Form.Label>Field Key</Form.Label>
+                              <Form.Control
+                                value={field.key}
+                                onChange={(currentEvent) =>
+                                  updateNormalField(index, {
+                                    key: currentEvent.target.value,
+                                  })
+                                }
+                                required
+                              />
+                            </Form.Group>
+                          </Col>
+
+                          <Col md={3}>
+                            <Form.Group controlId={`normal-field-label-${index}`}>
+                              <Form.Label>Label</Form.Label>
+                              <Form.Control
+                                value={field.label}
+                                onChange={(currentEvent) =>
+                                  updateNormalField(index, {
+                                    label: currentEvent.target.value,
+                                  })
+                                }
+                                required
+                              />
+                            </Form.Group>
+                          </Col>
+
+                          <Col md={2}>
+                            <Form.Group controlId={`normal-field-type-${index}`}>
+                              <Form.Label>Type</Form.Label>
+                              <Form.Select
+                                value={field.type}
+                                onChange={(currentEvent) =>
+                                  updateNormalField(index, {
+                                    type: currentEvent.target.value as NormalFormFieldType,
+                                  })
+                                }
+                              >
+                                {normalFieldTypes.map((fieldType) => (
+                                  <option key={fieldType} value={fieldType}>
+                                    {fieldType}
+                                  </option>
+                                ))}
+                              </Form.Select>
+                            </Form.Group>
+                          </Col>
+
+                          <Col md={2}>
+                            <Form.Check
+                              id={`normal-field-required-${index}`}
+                              className="mt-4"
+                              label="Required"
+                              checked={field.required}
+                              onChange={(currentEvent) =>
+                                updateNormalField(index, {
+                                  required: currentEvent.target.checked,
+                                })
+                              }
+                            />
+                          </Col>
+
+                          <Col md={2} className="d-flex justify-content-end">
+                            <Button
+                              variant="outline-danger"
+                              type="button"
+                              disabled={normalFields.length <= 1}
+                              onClick={() => removeNormalField(index)}
+                            >
+                              Remove
+                            </Button>
+                          </Col>
+
+                          {needsOptions ? (
+                            <Col xs={12}>
+                              <Form.Group controlId={`normal-field-options-${index}`}>
+                                <Form.Label>Options (comma separated)</Form.Label>
+                                <Form.Control
+                                  value={field.optionsText}
+                                  onChange={(currentEvent) =>
+                                    updateNormalField(index, {
+                                      optionsText: currentEvent.target.value,
+                                    })
+                                  }
+                                  placeholder="option1, option2"
+                                  required
+                                />
+                              </Form.Group>
+                            </Col>
+                          ) : null}
+                        </Row>
+                      </Card.Body>
+                    </Card>
+                  );
+                })}
+
+                <Button variant="outline-primary" type="button" onClick={addNormalField}>
+                  Add Field
+                </Button>
+              </Card.Body>
+            </Card>
+          </Col>
+        ) : null}
+
+        {type === "MERCH" ? (
+          <Col xs={12}>
+            <Card className="border">
+              <Card.Body>
+                <Card.Title className="h6">Merch Config</Card.Title>
+
+                <Row className="g-2 mb-3">
+                  <Col md={4}>
+                    <Form.Group controlId="merch-per-limit">
+                      <Form.Label>Per Participant Limit</Form.Label>
+                      <Form.Control
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={perParticipantLimit}
+                        onChange={(currentEvent) =>
+                          setPerParticipantLimit(currentEvent.target.value)
+                        }
+                        required
+                      />
+                    </Form.Group>
+                  </Col>
+                </Row>
+
+                {merchVariants.map((variant, index) => (
+                  <Card key={variant.uiId} className="mb-3 border">
+                    <Card.Body>
+                      <Row className="g-2 align-items-end">
+                        <Col md={3}>
+                          <Form.Group controlId={`merch-variant-sku-${index}`}>
+                            <Form.Label>SKU</Form.Label>
+                            <Form.Control
+                              value={variant.sku}
+                              onChange={(currentEvent) =>
+                                updateMerchVariant(index, {
+                                  sku: currentEvent.target.value,
+                                })
+                              }
+                              required
+                            />
+                          </Form.Group>
+                        </Col>
+
+                        <Col md={3}>
+                          <Form.Group controlId={`merch-variant-label-${index}`}>
+                            <Form.Label>Label</Form.Label>
+                            <Form.Control
+                              value={variant.label}
+                              onChange={(currentEvent) =>
+                                updateMerchVariant(index, {
+                                  label: currentEvent.target.value,
+                                })
+                              }
+                              required
+                            />
+                          </Form.Group>
+                        </Col>
+
+                        <Col md={2}>
+                          <Form.Group controlId={`merch-variant-stock-${index}`}>
+                            <Form.Label>Stock</Form.Label>
+                            <Form.Control
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={variant.stock}
+                              onChange={(currentEvent) =>
+                                updateMerchVariant(index, {
+                                  stock: currentEvent.target.value,
+                                })
+                              }
+                              required
+                            />
+                          </Form.Group>
+                        </Col>
+
+                        <Col md={2}>
+                          <Form.Group controlId={`merch-variant-price-delta-${index}`}>
+                            <Form.Label>Price Delta</Form.Label>
+                            <Form.Control
+                              type="number"
+                              step="0.01"
+                              value={variant.priceDelta}
+                              onChange={(currentEvent) =>
+                                updateMerchVariant(index, {
+                                  priceDelta: currentEvent.target.value,
+                                })
+                              }
+                            />
+                          </Form.Group>
+                        </Col>
+
+                        <Col md={2} className="d-flex justify-content-end">
+                          <Button
+                            variant="outline-danger"
+                            type="button"
+                            disabled={merchVariants.length <= 1}
+                            onClick={() => removeMerchVariant(index)}
+                          >
+                            Remove
+                          </Button>
+                        </Col>
+                      </Row>
+                    </Card.Body>
+                  </Card>
+                ))}
+
+                <Button variant="outline-primary" type="button" onClick={addMerchVariant}>
+                  Add Variant
+                </Button>
+              </Card.Body>
+            </Card>
+          </Col>
+        ) : null}
       </Row>
 
       <div className="mt-3 d-flex justify-content-end">
