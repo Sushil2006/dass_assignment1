@@ -1,6 +1,7 @@
+import { useCallback, useEffect } from "react";
 import { Container, Nav, Navbar } from "react-bootstrap";
-import { Link, useNavigate } from "react-router-dom";
-import { logout, type AuthUser } from "../lib/auth";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { getMe, logout, type AuthUser } from "../lib/auth";
 import { useAuth } from "../lib/authState";
 
 type NavItem = {
@@ -8,8 +9,6 @@ type NavItem = {
   to: string;
 };
 
-// Role-based menu map using assignment labels.
-// For now, links point to existing dashboard routes until dedicated pages are added.
 const roleMenus: Record<AuthUser["role"], NavItem[]> = {
   participant: [
     { label: "Dashboard", to: "/participant" },
@@ -31,13 +30,28 @@ const roleMenus: Record<AuthUser["role"], NavItem[]> = {
 };
 
 export default function AppNav() {
+  const location = useLocation();
   const navigate = useNavigate();
-  const { user, loading } = useAuth();
+  const { user, loading, setUser } = useAuth();
+
+  const syncNavRole = useCallback(async (_pathname: string) => {
+    try {
+      const me = await getMe();
+      setUser(me);
+    } catch {
+      setUser(null);
+    }
+  }, [setUser]);
+
+  useEffect(() => {
+    void syncNavRole(location.pathname);
+  }, [location.pathname, syncNavRole]);
 
   async function onLogout() {
     try {
       await logout();
     } finally {
+      setUser(null);
       navigate("/login", { replace: true });
     }
   }
