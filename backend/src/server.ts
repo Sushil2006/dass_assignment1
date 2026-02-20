@@ -7,6 +7,7 @@ import { ensureDbIndexes } from "./db/indexes";
 import { seedFirstAdmin } from "./startup/seedAdmin";
 
 async function main() {
+  // create file upload directory
   const uploadDirPath = path.resolve(process.cwd(), env.UPLOAD_DIR);
   fs.mkdirSync(uploadDirPath, { recursive: true });
 

@@ -125,6 +125,7 @@ authRouter.post("/signup", async (req, res, next) => {
 
     const insertResult = await users.insertOne(userToInsert);
 
+    // sign jwt token for user, and put it in the response cookie
     const token = signJwt({
       userId: insertResult.insertedId.toString(),
       role: "participant",
@@ -183,10 +184,7 @@ authRouter.post("/login", async (req, res, next) => {
     }
 
     // block organizer login when admin disables the account
-    if (
-      user.role === "organizer" &&
-      user.isDisabled === true
-    ) {
+    if (user.role === "organizer" && user.isDisabled === true) {
       return res
         .status(403)
         .json({ error: { message: "Organizer account is disabled" } });
@@ -220,7 +218,7 @@ authRouter.post("/logout", (req, res) => {
 
 authRouter.get("/me", requireAuth, async (req, res, next) => {
   try {
-    // req.user is set by requireAuth after token validation
+    // req.user is set by middleware/requireAuth after token validation
     const authUser = req.user;
     if (!authUser) {
       return res.status(401).json({ error: { message: "Not authenticated" } });

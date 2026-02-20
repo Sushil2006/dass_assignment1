@@ -1,3 +1,4 @@
+// setup cookie config
 import type { CookieOptions } from "express";
 
 export const AUTH_COOKIE_NAME = "felicity_auth";

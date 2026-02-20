@@ -1,3 +1,6 @@
+// jwt helper functions
+// signJwt --> signs a jwt payload with secret jwt key
+// verifyJwt --> verifies if jwt token decodes to give a valid payload
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { env } from "../config/env";
 import { UserRole } from "../db/models";

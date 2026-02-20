@@ -18,3 +18,5 @@ coverage/
 *.tsbuildinfo
 
 uploads/
+.zed/
+explanations/

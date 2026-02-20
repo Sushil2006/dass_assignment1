@@ -7,10 +7,12 @@ import { apiRouter } from "./routes";
 
 export const app = express();
 
-app.use(morgan("dev"));
-app.use(express.json());
-app.use(cookieParser());
+// adding middleware: functions that run on every single request
+app.use(morgan("dev")); // http request logging to terminal
+app.use(express.json()); // parse json request bodies; if client sends json, express reads the body and sets req.body to the parsed object
+app.use(cookieParser()); // parse the cookie header into req.cookies object
 
+// cors handler middleware
 app.use(
   cors({
     origin: env.CLIENT_ORIGIN,
