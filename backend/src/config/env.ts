@@ -8,6 +8,19 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32, "JWT_SECRET should be at least 32 characters"),
   CLIENT_ORIGIN: z.string().url(),
   UPLOAD_DIR: z.string().min(1).default("./uploads"),
+  SMTP_HOST: z.string().trim().min(1).default("127.0.0.1"),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
+  SMTP_SECURE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
+  SMTP_USER: z.string().trim().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z
+    .string()
+    .trim()
+    .min(1)
+    .default("Felicity <no-reply@felicity.local>"),
 
   IIIT_EMAIL_DOMAINS: z
     .string()

@@ -44,15 +44,69 @@ export const registrationStatuses = [
 ] as const;
 export type RegistrationStatus = (typeof registrationStatuses)[number];
 
+export const registrationEventTypes = ["NORMAL", "MERCH"] as const;
+export type RegistrationEventType = (typeof registrationEventTypes)[number];
+
+export type RegistrationFieldType =
+  | "text"
+  | "textarea"
+  | "number"
+  | "select"
+  | "checkbox"
+  | "file";
+
+export type RegistrationFieldFile = {
+  filename: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+};
+
+export type RegistrationResponseValue = string | number | string[];
+
+export type RegistrationFormResponse = {
+  key: string;
+  label: string;
+  type: RegistrationFieldType;
+  value?: RegistrationResponseValue;
+  file?: RegistrationFieldFile;
+};
+
+export type MerchPurchaseSnapshot = {
+  sku: string;
+  label: string;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+};
+
 export type RegistrationDoc = {
   _id: ObjectId;
   eventId: ObjectId;
   userId: ObjectId;
   status: RegistrationStatus;
   createdAt: Date;
+  updatedAt?: Date;
+  eventType?: RegistrationEventType;
+  ticketId?: string;
+  normalResponses?: RegistrationFormResponse[];
+  merchPurchase?: MerchPurchaseSnapshot;
 };
 
 export type RegistrationInsert = Omit<RegistrationDoc, "_id">;
+
+export type TicketDoc = {
+  _id: ObjectId;
+  ticketId: string;
+  eventId: ObjectId;
+  userId: ObjectId;
+  participationId: ObjectId;
+  eventType: RegistrationEventType;
+  qrPayload: string;
+  createdAt: Date;
+};
+
+export type TicketInsert = Omit<TicketDoc, "_id">;
 
 export const paymentMethods = [
   "upi",

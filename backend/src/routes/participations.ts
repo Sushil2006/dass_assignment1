@@ -3,12 +3,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Router, type Response } from "express";
 import multer from "multer";
-import { ObjectId } from "mongodb";
+import { type Collection, ObjectId } from "mongodb";
 import { z } from "zod";
 import { env } from "../config/env";
 import { getDb } from "../db/client";
 import { collections } from "../db/collections";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { sendTicketEmailSafe } from "../utils/email";
 import { buildTicketDoc, type StoredTicketDoc } from "../utils/tickets";
 
 export const participationsRouter = Router();
@@ -45,11 +46,13 @@ type StoredEventDoc = {
   _id: ObjectId;
   name: string;
   type: EventType;
+  organizerId: ObjectId;
   status: PersistedEventStatus;
   regFee: number;
   regDeadline: Date;
   regLimit: number;
   endDate: Date;
+  updatedAt?: Date;
   normalForm?:
     | {
         fields: NormalFormField[];
@@ -101,6 +104,13 @@ type StoredParticipationDoc = {
   ticketId: string;
   normalResponses?: StoredNormalResponse[] | undefined;
   merchPurchase?: MerchPurchase | undefined;
+};
+
+type ParticipantUserDoc = {
+  _id: ObjectId;
+  email: string;
+  role: "participant";
+  name: string;
 };
 
 const inactiveParticipationStatuses: ParticipationStatus[] = [
@@ -398,6 +408,43 @@ function toTicketResponse(ticket: StoredTicketDoc) {
   };
 }
 
+async function restockMerchIfNeeded(params: {
+  events: Collection<StoredEventDoc>;
+  event: StoredEventDoc;
+  participation: StoredParticipationDoc;
+  now: Date;
+}) {
+  if (!params.participation.merchPurchase || !params.event.merchConfig) return;
+
+  const targetSku = params.participation.merchPurchase.sku;
+  const restoreQuantity = params.participation.merchPurchase.quantity;
+
+  const nextVariants = params.event.merchConfig.variants.map((variant) =>
+    variant.sku === targetSku
+      ? { ...variant, stock: variant.stock + restoreQuantity }
+      : variant,
+  );
+
+  const nextTotalStock = nextVariants.reduce(
+    (sum, variant) => sum + variant.stock,
+    0,
+  );
+
+  await params.events.updateOne(
+    { _id: params.event._id },
+    {
+      $set: {
+        merchConfig: {
+          variants: nextVariants,
+          perParticipantLimit: params.event.merchConfig.perParticipantLimit,
+          totalStock: nextTotalStock,
+        },
+        updatedAt: params.now,
+      },
+    },
+  );
+}
+
 // participant registers for a normal event with form answers + optional files
 participationsRouter.post(
   "/register",
@@ -469,6 +516,20 @@ participationsRouter.post(
         collections.registrations,
       );
       const tickets = db.collection<StoredTicketDoc>(collections.tickets);
+      const users = db.collection<ParticipantUserDoc>(collections.users);
+
+      const participant = await users.findOne({
+        _id: participantId,
+        role: "participant",
+      });
+      if (!participant) {
+        return rejectWithCleanup(
+          res,
+          404,
+          "Participant not found",
+          uploadedFiles,
+        );
+      }
 
       const event = await events.findOne({ _id: eventId });
       if (!event) {
@@ -560,12 +621,166 @@ participationsRouter.post(
       await participations.insertOne(participation);
       await tickets.insertOne(ticket);
 
+      await sendTicketEmailSafe({
+        toEmail: participant.email,
+        toName: participant.name,
+        eventName: event.name,
+        eventType: event.type,
+        ticketId: ticket.ticketId,
+        qrPayload: ticket.qrPayload,
+      });
+
       return res.status(201).json({
         participation: toParticipationResponse(participation),
         ticket: toTicketResponse(ticket),
       });
     } catch (err) {
       await cleanupUploadedFiles(uploadedFiles);
+      return next(err);
+    }
+  },
+);
+
+// participant cancels own active participation and releases merch stock if needed
+participationsRouter.patch(
+  "/:participationId/cancel",
+  requireAuth,
+  requireRole("participant"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participantId = parseObjectId(authUser.id);
+      if (!participantId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participationId = parseObjectId(req.params.participationId);
+      if (!participationId) {
+        return res
+          .status(400)
+          .json({ error: { message: "Invalid participation id" } });
+      }
+
+      const db = getDb();
+      const participations = db.collection<StoredParticipationDoc>(
+        collections.registrations,
+      );
+      const events = db.collection<StoredEventDoc>(collections.events);
+
+      const participation = await participations.findOne({
+        _id: participationId,
+        userId: participantId,
+      });
+      if (!participation) {
+        return res
+          .status(404)
+          .json({ error: { message: "Participation not found" } });
+      }
+
+      if (
+        participation.status === "cancelled" ||
+        participation.status === "rejected"
+      ) {
+        return res.json({ participation: toParticipationResponse(participation) });
+      }
+
+      const event = await events.findOne({ _id: participation.eventId });
+      if (!event) {
+        return res.status(404).json({ error: { message: "Event not found" } });
+      }
+
+      const now = new Date();
+      await participations.updateOne(
+        { _id: participation._id, userId: participantId },
+        { $set: { status: "cancelled", updatedAt: now } },
+      );
+
+      await restockMerchIfNeeded({ events, event, participation, now });
+
+      const updated: StoredParticipationDoc = {
+        ...participation,
+        status: "cancelled",
+        updatedAt: now,
+      };
+
+      return res.json({ participation: toParticipationResponse(updated) });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// organizer/admin rejects participation and releases merch stock when applicable
+participationsRouter.patch(
+  "/:participationId/reject",
+  requireAuth,
+  requireRole("organizer", "admin"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participationId = parseObjectId(req.params.participationId);
+      if (!participationId) {
+        return res
+          .status(400)
+          .json({ error: { message: "Invalid participation id" } });
+      }
+
+      const db = getDb();
+      const participations = db.collection<StoredParticipationDoc>(
+        collections.registrations,
+      );
+      const events = db.collection<StoredEventDoc>(collections.events);
+
+      const participation = await participations.findOne({ _id: participationId });
+      if (!participation) {
+        return res
+          .status(404)
+          .json({ error: { message: "Participation not found" } });
+      }
+
+      if (
+        participation.status === "cancelled" ||
+        participation.status === "rejected"
+      ) {
+        return res.json({ participation: toParticipationResponse(participation) });
+      }
+
+      const event = await events.findOne({ _id: participation.eventId });
+      if (!event) {
+        return res.status(404).json({ error: { message: "Event not found" } });
+      }
+
+      if (authUser.role === "organizer") {
+        const organizerId = parseObjectId(authUser.id);
+        if (!organizerId || event.organizerId.toString() !== organizerId.toString()) {
+          return res.status(403).json({ error: { message: "Forbidden" } });
+        }
+      }
+
+      const now = new Date();
+      await participations.updateOne(
+        { _id: participation._id },
+        { $set: { status: "rejected", updatedAt: now } },
+      );
+
+      await restockMerchIfNeeded({ events, event, participation, now });
+
+      const updated: StoredParticipationDoc = {
+        ...participation,
+        status: "rejected",
+        updatedAt: now,
+      };
+
+      return res.json({ participation: toParticipationResponse(updated) });
+    } catch (err) {
       return next(err);
     }
   },
@@ -606,6 +821,15 @@ participationsRouter.post(
         collections.registrations,
       );
       const tickets = db.collection<StoredTicketDoc>(collections.tickets);
+      const users = db.collection<ParticipantUserDoc>(collections.users);
+
+      const participant = await users.findOne({
+        _id: participantId,
+        role: "participant",
+      });
+      if (!participant) {
+        return res.status(404).json({ error: { message: "Participant not found" } });
+      }
 
       const event = await events.findOne({ _id: eventId });
       if (!event) {
@@ -726,6 +950,15 @@ participationsRouter.post(
 
       await participations.insertOne(participation);
       await tickets.insertOne(ticket);
+
+      await sendTicketEmailSafe({
+        toEmail: participant.email,
+        toName: participant.name,
+        eventName: event.name,
+        eventType: event.type,
+        ticketId: ticket.ticketId,
+        qrPayload: ticket.qrPayload,
+      });
 
       return res.status(201).json({
         participation: toParticipationResponse(participation),

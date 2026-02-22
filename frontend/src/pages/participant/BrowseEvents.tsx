@@ -6,19 +6,15 @@ import {
   Col,
   Container,
   Form,
-  Modal,
   Row,
   Spinner,
 } from "react-bootstrap";
+import { useNavigate } from "react-router-dom";
 import EventCard, { type EventCardData } from "../../components/EventCard";
 import { apiFetch } from "../../lib/api";
 
 type EventsResponse = {
   events?: EventCardData[];
-};
-
-type EventDetailResponse = {
-  event?: EventCardData;
 };
 
 type BrowseFilters = {
@@ -59,6 +55,7 @@ function buildSearchParams(filters: BrowseFilters): string {
 }
 
 export default function BrowseEvents() {
+  const navigate = useNavigate();
   const [filters, setFilters] = useState<BrowseFilters>(defaultFilters);
   const [events, setEvents] = useState<EventCardData[]>([]);
   const [trending, setTrending] = useState<EventCardData[]>([]);
@@ -66,10 +63,6 @@ export default function BrowseEvents() {
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [loadingTrending, setLoadingTrending] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailEvent, setDetailEvent] = useState<EventCardData | null>(null);
 
   // use one loader so submit/reset can reuse the same fetch path
   const loadEvents = useCallback(async (nextFilters: BrowseFilters) => {
@@ -113,24 +106,6 @@ export default function BrowseEvents() {
     void loadEvents(defaultFilters);
     void loadTrending();
   }, [loadEvents, loadTrending]);
-
-  async function openEventDetail(eventId: string) {
-    setDetailLoading(true);
-    setDetailOpen(true);
-    setDetailEvent(null);
-
-    try {
-      const res = await apiFetch(`/api/events/${eventId}`);
-      if (!res.ok) throw new Error(await readErrorMessage(res));
-
-      const data = (await res.json()) as EventDetailResponse;
-      setDetailEvent(data.event ?? null);
-    } catch {
-      setDetailEvent(null);
-    } finally {
-      setDetailLoading(false);
-    }
-  }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -262,7 +237,7 @@ export default function BrowseEvents() {
                   <EventCard
                     event={event}
                     onOpenDetail={(eventId) => {
-                      void openEventDetail(eventId);
+                      navigate(`/participant/events/${eventId}`);
                     }}
                   />
                 </Col>
@@ -289,7 +264,7 @@ export default function BrowseEvents() {
                   <EventCard
                     event={event}
                     onOpenDetail={(eventId) => {
-                      void openEventDetail(eventId);
+                      navigate(`/participant/events/${eventId}`);
                     }}
                   />
                 </Col>
@@ -299,23 +274,6 @@ export default function BrowseEvents() {
         </Card.Body>
       </Card>
 
-      <Modal show={detailOpen} onHide={() => setDetailOpen(false)} size="lg">
-        <Modal.Header closeButton>
-          <Modal.Title>Event Detail</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          {detailLoading ? (
-            <div className="d-flex align-items-center gap-2">
-              <Spinner animation="border" size="sm" />
-              <span>Loading event detail...</span>
-            </div>
-          ) : detailEvent ? (
-            <EventCard event={detailEvent} />
-          ) : (
-            <div className="text-muted">Unable to load event detail.</div>
-          )}
-        </Modal.Body>
-      </Modal>
     </Container>
   );
 }

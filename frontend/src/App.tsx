@@ -8,6 +8,10 @@ import AdminHome from "./pages/admin/AdminHome";
 import ManageOrganizers from "./pages/admin/ManageOrganizers";
 import AppNav from "./components/AppNav";
 import ProtectedRoute from "./components/ProtectedRoute";
+import BrowseEvents from "./pages/participant/BrowseEvents";
+import MyEvents from "./pages/participant/MyEvents";
+import EventDetail from "./pages/participant/EventDetail";
+import TicketDetail from "./pages/participant/TicketDetail";
 
 export default function App() {
   return (
@@ -20,6 +24,10 @@ export default function App() {
 
         <Route element={<ProtectedRoute roles={["participant"]} />}>
           <Route path="/participant" element={<ParticipantDashboard />} />
+          <Route path="/participant/events" element={<BrowseEvents />} />
+          <Route path="/participant/events/:eventId" element={<EventDetail />} />
+          <Route path="/participant/my-events" element={<MyEvents />} />
+          <Route path="/participant/tickets/:ticketId" element={<TicketDetail />} />
         </Route>
 
         <Route element={<ProtectedRoute roles={["organizer"]} />}>
