@@ -186,6 +186,13 @@ export default function MyEvents() {
                   event={event}
                   actions={
                     <>
+                      <Link
+                        to={`/organizer/events/${event.id}`}
+                        className="btn btn-outline-primary btn-sm"
+                      >
+                        Open
+                      </Link>
+
                       <Button
                         size="sm"
                         variant="outline-secondary"

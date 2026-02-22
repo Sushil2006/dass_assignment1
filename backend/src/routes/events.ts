@@ -5,6 +5,7 @@ import { getDb } from "../db/client";
 import { collections } from "../db/collections";
 import { requireAuth, requireRole } from "../middleware/auth";
 import type { RegistrationDoc } from "../db/models";
+import { toCsvString } from "../utils/csv";
 
 export const eventsRouter = Router();
 
@@ -82,6 +83,67 @@ type MerchVariant = {
   label: string;
   stock: number;
   priceDelta?: number | undefined;
+};
+
+type ParticipationStatus = "pending" | "confirmed" | "cancelled" | "rejected";
+
+type StoredNormalResponse = {
+  key: string;
+  label: string;
+  type: NormalFormFieldType;
+  value?: string | number | string[] | undefined;
+  file?:
+    | {
+        filename: string;
+        originalName: string;
+        mimeType: string;
+        size: number;
+      }
+    | undefined;
+};
+
+type MerchPurchaseSnapshot = {
+  sku: string;
+  label: string;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+};
+
+type StoredParticipationDoc = {
+  _id: ObjectId;
+  eventId: ObjectId;
+  userId: ObjectId;
+  status: ParticipationStatus;
+  createdAt: Date;
+  updatedAt?: Date;
+  eventType?: EventType;
+  ticketId?: string;
+  normalResponses?: StoredNormalResponse[] | undefined;
+  merchPurchase?: MerchPurchaseSnapshot | undefined;
+};
+
+type ParticipantUserDoc = {
+  _id: ObjectId;
+  role: "participant";
+  name: string;
+  email: string;
+  participantType?: string;
+  collegeOrOrganization?: string;
+  contactNumber?: string;
+};
+
+type EventAnalyticsSummary = {
+  totalParticipations: number;
+  activeParticipations: number;
+  confirmedCount: number;
+  pendingCount: number;
+  cancelledCount: number;
+  rejectedCount: number;
+  normalCount: number;
+  merchCount: number;
+  registrations24h: number;
+  estimatedRevenue: number;
 };
 
 const normalFormFieldTypes = [
@@ -265,7 +327,7 @@ function buildPublicEventsFilter(
 ) {
   const filter: Record<string, unknown> = {};
 
-  // for ongoing events, just filter by published status; actual ongoing filter happens later in the caller's logic
+  // ongoing is derived later from published + time window
   if (query.status === "ONGOING") {
     filter.status = "PUBLISHED";
   } else if (query.status) {
@@ -366,6 +428,133 @@ function toPublicEventResponse(event: StoredEventDoc) {
   return {
     ...toEventResponse(event),
     canRegister: canRegisterNow(event, new Date()),
+  };
+}
+
+function isActiveParticipationStatus(status: ParticipationStatus): boolean {
+  return status !== "cancelled" && status !== "rejected";
+}
+
+function resolveParticipationEventType(
+  participation: StoredParticipationDoc,
+  fallbackType: EventType,
+): EventType {
+  return participation.eventType ?? fallbackType;
+}
+
+function formatNormalResponseValue(response: StoredNormalResponse): string {
+  if (response.file) {
+    return `[file] ${response.file.originalName}`;
+  }
+
+  if (Array.isArray(response.value)) {
+    return response.value.join(" | ");
+  }
+
+  if (response.value === undefined || response.value === null) {
+    return "";
+  }
+
+  return String(response.value);
+}
+
+function buildEventAnalyticsSummary(
+  event: StoredEventDoc,
+  participations: StoredParticipationDoc[],
+  now: Date,
+): EventAnalyticsSummary {
+  const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const summary: EventAnalyticsSummary = {
+    totalParticipations: participations.length,
+    activeParticipations: 0,
+    confirmedCount: 0,
+    pendingCount: 0,
+    cancelledCount: 0,
+    rejectedCount: 0,
+    normalCount: 0,
+    merchCount: 0,
+    registrations24h: 0,
+    estimatedRevenue: 0,
+  };
+
+  for (const participation of participations) {
+    const eventType = resolveParticipationEventType(participation, event.type);
+    if (eventType === "MERCH") {
+      summary.merchCount += 1;
+    } else {
+      summary.normalCount += 1;
+    }
+
+    if (participation.status === "confirmed") {
+      summary.confirmedCount += 1;
+      if (eventType === "MERCH") {
+        summary.estimatedRevenue += participation.merchPurchase?.totalAmount ?? 0;
+      } else {
+        summary.estimatedRevenue += event.regFee;
+      }
+    } else if (participation.status === "pending") {
+      summary.pendingCount += 1;
+    } else if (participation.status === "cancelled") {
+      summary.cancelledCount += 1;
+    } else if (participation.status === "rejected") {
+      summary.rejectedCount += 1;
+    }
+
+    if (isActiveParticipationStatus(participation.status)) {
+      summary.activeParticipations += 1;
+      if (participation.createdAt >= since) {
+        summary.registrations24h += 1;
+      }
+    }
+  }
+
+  return summary;
+}
+
+async function loadOrganizerEventParticipants(params: {
+  eventId: ObjectId;
+  organizerId: ObjectId;
+}) {
+  const db = getDb();
+  const events = db.collection<StoredEventDoc>(collections.events);
+  const participations = db.collection<StoredParticipationDoc>(
+    collections.registrations,
+  );
+  const users = db.collection<ParticipantUserDoc>(collections.users);
+
+  const event = await events.findOne({
+    _id: params.eventId,
+    organizerId: params.organizerId,
+  });
+  if (!event) return null;
+
+  const foundParticipations = await participations
+    .find({ eventId: params.eventId })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  const participantIds = [
+    ...new Set(foundParticipations.map((entry) => entry.userId.toString())),
+  ].map((id) => new ObjectId(id));
+
+  const participants =
+    participantIds.length > 0
+      ? await users
+          .find({
+            _id: { $in: participantIds },
+            role: "participant",
+          })
+          .toArray()
+      : [];
+
+  const participantsById = new Map(
+    participants.map((participant) => [participant._id.toString(), participant]),
+  );
+
+  return {
+    event,
+    participations: foundParticipations,
+    participantsById,
   };
 }
 
@@ -482,6 +671,358 @@ eventsRouter.get(
   },
 );
 
+// organizer dashboard analytics summary across own events
+eventsRouter.get(
+  "/organizer/analytics/summary",
+  requireAuth,
+  requireRole("organizer"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res
+          .status(401)
+          .json({ error: { message: "Not authenticated" } });
+      }
+
+      const organizerId = getOrganizerObjectId(authUser.id);
+      if (!organizerId) {
+        return res
+          .status(401)
+          .json({ error: { message: "Not authenticated" } });
+      }
+
+      const db = getDb();
+      const events = db.collection<StoredEventDoc>(collections.events);
+      const participations = db.collection<StoredParticipationDoc>(
+        collections.registrations,
+      );
+
+      const organizerEvents = await events
+        .find({ organizerId })
+        .sort({ createdAt: -1 })
+        .toArray();
+      if (organizerEvents.length === 0) {
+        return res.json({
+          summary: {
+            totalEvents: 0,
+            draftEvents: 0,
+            publishedEvents: 0,
+            closedEvents: 0,
+            completedEvents: 0,
+            totalParticipations: 0,
+            activeParticipations: 0,
+            confirmedCount: 0,
+            pendingCount: 0,
+            cancelledCount: 0,
+            rejectedCount: 0,
+            registrations24h: 0,
+            estimatedRevenue: 0,
+          },
+          topEvents: [],
+        });
+      }
+
+      const eventIds = organizerEvents.map((event) => event._id);
+      const allParticipations = await participations
+        .find({ eventId: { $in: eventIds } })
+        .toArray();
+
+      const participationsByEventId = new Map<string, StoredParticipationDoc[]>();
+      for (const participation of allParticipations) {
+        const eventId = participation.eventId.toString();
+        const list = participationsByEventId.get(eventId);
+        if (list) {
+          list.push(participation);
+        } else {
+          participationsByEventId.set(eventId, [participation]);
+        }
+      }
+
+      const now = new Date();
+      const eventSummaries = organizerEvents.map((event) => {
+        const eventParticipations =
+          participationsByEventId.get(event._id.toString()) ?? [];
+        const analytics = buildEventAnalyticsSummary(event, eventParticipations, now);
+        return {
+          event,
+          analytics,
+        };
+      });
+
+      const summary = {
+        totalEvents: organizerEvents.length,
+        draftEvents: organizerEvents.filter((event) => event.status === "DRAFT")
+          .length,
+        publishedEvents: organizerEvents.filter(
+          (event) => event.status === "PUBLISHED",
+        ).length,
+        closedEvents: organizerEvents.filter((event) => event.status === "CLOSED")
+          .length,
+        completedEvents: organizerEvents.filter(
+          (event) => event.status === "COMPLETED",
+        ).length,
+        totalParticipations: eventSummaries.reduce(
+          (sum, item) => sum + item.analytics.totalParticipations,
+          0,
+        ),
+        activeParticipations: eventSummaries.reduce(
+          (sum, item) => sum + item.analytics.activeParticipations,
+          0,
+        ),
+        confirmedCount: eventSummaries.reduce(
+          (sum, item) => sum + item.analytics.confirmedCount,
+          0,
+        ),
+        pendingCount: eventSummaries.reduce(
+          (sum, item) => sum + item.analytics.pendingCount,
+          0,
+        ),
+        cancelledCount: eventSummaries.reduce(
+          (sum, item) => sum + item.analytics.cancelledCount,
+          0,
+        ),
+        rejectedCount: eventSummaries.reduce(
+          (sum, item) => sum + item.analytics.rejectedCount,
+          0,
+        ),
+        registrations24h: eventSummaries.reduce(
+          (sum, item) => sum + item.analytics.registrations24h,
+          0,
+        ),
+        estimatedRevenue: eventSummaries.reduce(
+          (sum, item) => sum + item.analytics.estimatedRevenue,
+          0,
+        ),
+      };
+
+      const topEvents = eventSummaries
+        .sort((a, b) => {
+          const byActive =
+            b.analytics.activeParticipations - a.analytics.activeParticipations;
+          if (byActive !== 0) return byActive;
+
+          const byRecent24h =
+            b.analytics.registrations24h - a.analytics.registrations24h;
+          if (byRecent24h !== 0) return byRecent24h;
+
+          return b.event.createdAt.getTime() - a.event.createdAt.getTime();
+        })
+        .slice(0, 5)
+        .map((item) => ({
+          id: item.event._id.toString(),
+          name: item.event.name,
+          type: item.event.type,
+          status: item.event.status,
+          startDate: item.event.startDate,
+          endDate: item.event.endDate,
+          totalParticipations: item.analytics.totalParticipations,
+          activeParticipations: item.analytics.activeParticipations,
+          registrations24h: item.analytics.registrations24h,
+          estimatedRevenue: item.analytics.estimatedRevenue,
+        }));
+
+      return res.json({ summary, topEvents });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// organizer lists one event's participants and analytics
+eventsRouter.get(
+  "/organizer/:eventId/participants",
+  requireAuth,
+  requireRole("organizer"),
+  async (req, res, next) => {
+    try {
+      const eventId = parseObjectId(req.params.eventId);
+      if (!eventId) {
+        return res.status(400).json({ error: { message: "Invalid event id" } });
+      }
+
+      const authUser = req.user;
+      if (!authUser) {
+        return res
+          .status(401)
+          .json({ error: { message: "Not authenticated" } });
+      }
+
+      const organizerId = getOrganizerObjectId(authUser.id);
+      if (!organizerId) {
+        return res
+          .status(401)
+          .json({ error: { message: "Not authenticated" } });
+      }
+
+      const loaded = await loadOrganizerEventParticipants({ eventId, organizerId });
+      if (!loaded) {
+        return res.status(404).json({ error: { message: "Event not found" } });
+      }
+
+      const now = new Date();
+      const analytics = buildEventAnalyticsSummary(
+        loaded.event,
+        loaded.participations,
+        now,
+      );
+
+      const participants = loaded.participations.map((participation) => {
+        const participant = loaded.participantsById.get(
+          participation.userId.toString(),
+        );
+
+        return {
+          id: participation._id.toString(),
+          userId: participation.userId.toString(),
+          status: participation.status,
+          eventType: resolveParticipationEventType(participation, loaded.event.type),
+          ticketId: participation.ticketId ?? null,
+          createdAt: participation.createdAt,
+          updatedAt: participation.updatedAt ?? participation.createdAt,
+          participant: participant
+            ? {
+                id: participant._id.toString(),
+                name: participant.name,
+                email: participant.email,
+                participantType: participant.participantType ?? null,
+                collegeOrOrganization:
+                  participant.collegeOrOrganization ?? null,
+                contactNumber: participant.contactNumber ?? null,
+              }
+            : {
+                id: participation.userId.toString(),
+                name: "Unknown participant",
+                email: null,
+                participantType: null,
+                collegeOrOrganization: null,
+                contactNumber: null,
+              },
+          normalResponses: (participation.normalResponses ?? []).map((response) => ({
+            key: response.key,
+            label: response.label,
+            type: response.type,
+            value: response.value,
+            file: response.file
+              ? {
+                  ...response.file,
+                  downloadUrl: `/api/uploads/${response.file.filename}`,
+                }
+              : undefined,
+          })),
+          merchPurchase: participation.merchPurchase ?? null,
+        };
+      });
+
+      return res.json({
+        event: toEventResponse(loaded.event),
+        analytics,
+        participants,
+      });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// organizer exports one event's participants as csv
+eventsRouter.get(
+  "/organizer/:eventId/participants.csv",
+  requireAuth,
+  requireRole("organizer"),
+  async (req, res, next) => {
+    try {
+      const eventId = parseObjectId(req.params.eventId);
+      if (!eventId) {
+        return res.status(400).json({ error: { message: "Invalid event id" } });
+      }
+
+      const authUser = req.user;
+      if (!authUser) {
+        return res
+          .status(401)
+          .json({ error: { message: "Not authenticated" } });
+      }
+
+      const organizerId = getOrganizerObjectId(authUser.id);
+      if (!organizerId) {
+        return res
+          .status(401)
+          .json({ error: { message: "Not authenticated" } });
+      }
+
+      const loaded = await loadOrganizerEventParticipants({ eventId, organizerId });
+      if (!loaded) {
+        return res.status(404).json({ error: { message: "Event not found" } });
+      }
+
+      const rows = loaded.participations.map((participation) => {
+        const participant = loaded.participantsById.get(
+          participation.userId.toString(),
+        );
+
+        return {
+          participationId: participation._id.toString(),
+          participantName: participant?.name ?? "Unknown participant",
+          participantEmail: participant?.email ?? "",
+          participantType: participant?.participantType ?? "",
+          collegeOrOrganization: participant?.collegeOrOrganization ?? "",
+          contactNumber: participant?.contactNumber ?? "",
+          status: participation.status,
+          eventType: resolveParticipationEventType(participation, loaded.event.type),
+          ticketId: participation.ticketId ?? "",
+          joinedAt: participation.createdAt,
+          updatedAt: participation.updatedAt ?? participation.createdAt,
+          merchSku: participation.merchPurchase?.sku ?? "",
+          merchLabel: participation.merchPurchase?.label ?? "",
+          merchQuantity: participation.merchPurchase?.quantity ?? "",
+          merchUnitPrice: participation.merchPurchase?.unitPrice ?? "",
+          merchTotalAmount: participation.merchPurchase?.totalAmount ?? "",
+          normalResponses: (participation.normalResponses ?? [])
+            .map((response) => `${response.label}: ${formatNormalResponseValue(response)}`)
+            .join(" || "),
+        };
+      });
+
+      const csv = toCsvString(rows, [
+        { header: "participationId", value: (row) => row.participationId },
+        { header: "participantName", value: (row) => row.participantName },
+        { header: "participantEmail", value: (row) => row.participantEmail },
+        { header: "participantType", value: (row) => row.participantType },
+        {
+          header: "collegeOrOrganization",
+          value: (row) => row.collegeOrOrganization,
+        },
+        { header: "contactNumber", value: (row) => row.contactNumber },
+        { header: "status", value: (row) => row.status },
+        { header: "eventType", value: (row) => row.eventType },
+        { header: "ticketId", value: (row) => row.ticketId },
+        { header: "joinedAt", value: (row) => row.joinedAt },
+        { header: "updatedAt", value: (row) => row.updatedAt },
+        { header: "merchSku", value: (row) => row.merchSku },
+        { header: "merchLabel", value: (row) => row.merchLabel },
+        { header: "merchQuantity", value: (row) => row.merchQuantity },
+        { header: "merchUnitPrice", value: (row) => row.merchUnitPrice },
+        { header: "merchTotalAmount", value: (row) => row.merchTotalAmount },
+        { header: "normalResponses", value: (row) => row.normalResponses },
+      ]);
+
+      const safeEventName = loaded.event.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60);
+      const filename = `${safeEventName || "event"}-participants.csv`;
+
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename=\"${filename}\"`);
+      return res.send(csv);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
 // organizer gets one own event by id for edit/view
 eventsRouter.get(
   "/organizer/:eventId",
@@ -509,7 +1050,7 @@ eventsRouter.get(
       }
 
       const db = getDb();
-      const events = db.collection<StoredEventDoc>(collections.events); // give me the `events` collection, and assume its documents conform to the `StoredEventDoc` shape.
+      const events = db.collection<StoredEventDoc>(collections.events);
       const event = await events.findOne({ _id: eventId, organizerId });
 
       if (!event) {
@@ -634,8 +1175,7 @@ eventsRouter.patch(
       }
 
       const updatedAt = new Date();
-      const updatePayload: Partial<StoredEventDoc> = { updatedAt }; // Partial means all fields from StoredEventDoc become optional; so we put only timestamp for now and fill other fields one by one
-      // later when updatePayload is passed to $set, mongodb only changes the fields present in updatePayload (not all fields)
+      const updatePayload: Partial<StoredEventDoc> = { updatedAt };
 
       if (parsed.data.name !== undefined) updatePayload.name = parsed.data.name;
       if (parsed.data.description !== undefined) {
@@ -710,9 +1250,9 @@ eventsRouter.patch(
       );
 
       const updatedEvent = {
-        ...existing, // copy old event fields
-        ...updatePayload, // overwrites changes fields with new values
-      } as StoredEventDoc; // final shape is same as StoredEventDoc
+        ...existing,
+        ...updatePayload,
+      } as StoredEventDoc;
 
       return res.json({ event: toEventResponse(updatedEvent) });
     } catch (err) {
@@ -885,23 +1425,18 @@ eventsRouter.get("/trending", async (_req, res, next) => {
 
     const topRegistrations = await registrations
       .aggregate<{ _id: ObjectId; registrations24h: number }>([
-        // typescript hinting the output doc shape
-
-        // filter "good" registrations in last 24h
         {
           $match: {
             createdAt: { $gte: since },
             status: { $nin: ["cancelled", "rejected"] },
           },
         },
-        // find count for each eventId
         {
           $group: {
             _id: "$eventId",
             registrations24h: { $sum: 1 },
           },
         },
-        // sort by registrations desc; cap to top 5 after public-status filtering
         { $sort: { registrations24h: -1 } },
       ])
       .toArray();
