@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Card, Container, Spinner, Stack } from "react-bootstrap";
 import { Link, useParams } from "react-router-dom";
+import { QRCodeCanvas } from "qrcode.react";
 import { apiFetch } from "../../lib/api";
 
 type TicketResponse = {
@@ -115,7 +116,11 @@ export default function TicketDetail() {
 
             <Card className="bg-light border mb-3">
               <Card.Body>
-                <h3 className="h6 mb-2">QR Payload</h3>
+                <h3 className="h6 mb-3">QR Code</h3>
+                <div className="d-flex justify-content-center mb-3">
+                  <QRCodeCanvas value={ticket.qrPayload} size={220} includeMargin />
+                </div>
+                <h3 className="h6 mb-2">QR Payload (debug)</h3>
                 <pre className="small mb-0">{ticket.qrPayload}</pre>
               </Card.Body>
             </Card>

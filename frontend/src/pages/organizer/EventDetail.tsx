@@ -6,6 +6,7 @@ import {
   Card,
   Col,
   Container,
+  Form,
   Row,
   Spinner,
   Tab,
@@ -148,10 +149,47 @@ export default function OrganizerEventDetail() {
   const [downloadingCsv, setDownloadingCsv] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<EventDetailResponse | null>(null);
+  const [participantQuery, setParticipantQuery] = useState("");
+  const [participantStatusFilter, setParticipantStatusFilter] = useState<
+    "all" | ParticipationStatus
+  >("all");
+  const [participantTypeFilter, setParticipantTypeFilter] = useState<
+    "all" | EventType
+  >("all");
 
   const event = detail?.event ?? null;
   const analytics = detail?.analytics ?? null;
   const participants = useMemo(() => detail?.participants ?? [], [detail?.participants]);
+  const filteredParticipants = useMemo(() => {
+    const query = participantQuery.trim().toLowerCase();
+
+    return participants.filter((entry) => {
+      if (participantStatusFilter !== "all" && entry.status !== participantStatusFilter) {
+        return false;
+      }
+
+      if (participantTypeFilter !== "all" && entry.eventType !== participantTypeFilter) {
+        return false;
+      }
+
+      if (!query) return true;
+
+      const participantName = entry.participant.name.toLowerCase();
+      const participantEmail = (entry.participant.email ?? "").toLowerCase();
+      const ticketId = (entry.ticketId ?? "").toLowerCase();
+
+      return (
+        participantName.includes(query) ||
+        participantEmail.includes(query) ||
+        ticketId.includes(query)
+      );
+    });
+  }, [
+    participantQuery,
+    participantStatusFilter,
+    participantTypeFilter,
+    participants,
+  ]);
 
   const loadDetail = useCallback(async () => {
     if (!eventId) return;
@@ -299,12 +337,73 @@ export default function OrganizerEventDetail() {
 
           <Tab eventKey="participants" title={`Participants (${participants.length})`}>
             <div className="mt-3 d-grid gap-3">
-              {participants.length === 0 ? (
+              <Card className="border">
+                <Card.Body>
+                  <Row className="g-2 align-items-end">
+                    <Col md={4}>
+                      <Form.Group controlId="participant-search">
+                        <Form.Label>Search</Form.Label>
+                        <Form.Control
+                          value={participantQuery}
+                          onChange={(currentEvent) =>
+                            setParticipantQuery(currentEvent.target.value)
+                          }
+                          placeholder="name, email, ticket id"
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={4}>
+                      <Form.Group controlId="participant-status-filter">
+                        <Form.Label>Status</Form.Label>
+                        <Form.Select
+                          value={participantStatusFilter}
+                          onChange={(currentEvent) =>
+                            setParticipantStatusFilter(
+                              currentEvent.target.value as
+                                | "all"
+                                | ParticipationStatus,
+                            )
+                          }
+                        >
+                          <option value="all">all</option>
+                          <option value="pending">pending</option>
+                          <option value="confirmed">confirmed</option>
+                          <option value="cancelled">cancelled</option>
+                          <option value="rejected">rejected</option>
+                        </Form.Select>
+                      </Form.Group>
+                    </Col>
+                    <Col md={4}>
+                      <Form.Group controlId="participant-type-filter">
+                        <Form.Label>Event Type</Form.Label>
+                        <Form.Select
+                          value={participantTypeFilter}
+                          onChange={(currentEvent) =>
+                            setParticipantTypeFilter(
+                              currentEvent.target.value as "all" | EventType,
+                            )
+                          }
+                        >
+                          <option value="all">all</option>
+                          <option value="NORMAL">NORMAL</option>
+                          <option value="MERCH">MERCH</option>
+                        </Form.Select>
+                      </Form.Group>
+                    </Col>
+                  </Row>
+                </Card.Body>
+              </Card>
+
+              {filteredParticipants.length === 0 ? (
                 <Card className="border">
-                  <Card.Body className="text-muted">No participants yet.</Card.Body>
+                  <Card.Body className="text-muted">
+                    {participants.length === 0
+                      ? "No participants yet."
+                      : "No participants match current filters."}
+                  </Card.Body>
                 </Card>
               ) : (
-                participants.map((entry) => (
+                filteredParticipants.map((entry) => (
                   <Card className="border" key={entry.id}>
                     <Card.Body>
                       <div className="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-2">

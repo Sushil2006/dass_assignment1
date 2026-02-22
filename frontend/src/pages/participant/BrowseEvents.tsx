@@ -15,20 +15,27 @@ import { apiFetch } from "../../lib/api";
 
 type EventsResponse = {
   events?: EventCardData[];
+  recommendedEvents?: EventCardData[];
 };
 
 type BrowseFilters = {
   q: string;
+  organizer: string;
   type: "" | "NORMAL" | "MERCH";
+  eligibility: string;
   status: "" | "PUBLISHED" | "ONGOING" | "CLOSED" | "COMPLETED";
+  followedOnly: boolean;
   from: string;
   to: string;
 };
 
 const defaultFilters: BrowseFilters = {
   q: "",
+  organizer: "",
   type: "",
+  eligibility: "",
   status: "",
+  followedOnly: false,
   from: "",
   to: "",
 };
@@ -46,8 +53,11 @@ function buildSearchParams(filters: BrowseFilters): string {
   const params = new URLSearchParams();
 
   if (filters.q) params.set("q", filters.q);
+  if (filters.organizer) params.set("organizer", filters.organizer);
   if (filters.type) params.set("type", filters.type);
+  if (filters.eligibility) params.set("eligibility", filters.eligibility);
   if (filters.status) params.set("status", filters.status);
+  if (filters.followedOnly) params.set("followedOnly", "true");
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
 
@@ -58,6 +68,7 @@ export default function BrowseEvents() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState<BrowseFilters>(defaultFilters);
   const [events, setEvents] = useState<EventCardData[]>([]);
+  const [recommendedEvents, setRecommendedEvents] = useState<EventCardData[]>([]);
   const [trending, setTrending] = useState<EventCardData[]>([]);
 
   const [loadingEvents, setLoadingEvents] = useState(true);
@@ -78,8 +89,10 @@ export default function BrowseEvents() {
 
       const data = (await res.json()) as EventsResponse;
       setEvents(data.events ?? []);
+      setRecommendedEvents(data.recommendedEvents ?? []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load events");
+      setRecommendedEvents([]);
     } finally {
       setLoadingEvents(false);
     }
@@ -138,7 +151,20 @@ export default function BrowseEvents() {
                     onChange={(event) =>
                       setFilters((prev) => ({ ...prev, q: event.target.value }))
                     }
-                    placeholder="name, tags, description"
+                    placeholder="event or organizer name"
+                  />
+                </Form.Group>
+              </Col>
+
+              <Col md={2}>
+                <Form.Group controlId="browse-organizer">
+                  <Form.Label>Organizer</Form.Label>
+                  <Form.Control
+                    value={filters.organizer}
+                    onChange={(event) =>
+                      setFilters((prev) => ({ ...prev, organizer: event.target.value }))
+                    }
+                    placeholder="name"
                   />
                 </Form.Group>
               </Col>
@@ -159,6 +185,19 @@ export default function BrowseEvents() {
                     <option value="NORMAL">NORMAL</option>
                     <option value="MERCH">MERCH</option>
                   </Form.Select>
+                </Form.Group>
+              </Col>
+
+              <Col md={2}>
+                <Form.Group controlId="browse-eligibility">
+                  <Form.Label>Eligibility</Form.Label>
+                  <Form.Control
+                    value={filters.eligibility}
+                    onChange={(event) =>
+                      setFilters((prev) => ({ ...prev, eligibility: event.target.value }))
+                    }
+                    placeholder="all / iiit / ..."
+                  />
                 </Form.Group>
               </Col>
 
@@ -209,6 +248,22 @@ export default function BrowseEvents() {
                 </Form.Group>
               </Col>
 
+              <Col md={2}>
+                <Form.Group controlId="browse-followed-only">
+                  <Form.Check
+                    type="checkbox"
+                    label="followed clubs only"
+                    checked={filters.followedOnly}
+                    onChange={(event) =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        followedOnly: event.target.checked,
+                      }))
+                    }
+                  />
+                </Form.Group>
+              </Col>
+
               <Col xs={12} className="d-flex gap-2 justify-content-end">
                 <Button variant="outline-secondary" type="button" onClick={() => void clearFilters()}>
                   Reset
@@ -217,6 +272,33 @@ export default function BrowseEvents() {
               </Col>
             </Row>
           </Form>
+        </Card.Body>
+      </Card>
+
+      <Card className="border mb-3">
+        <Card.Body>
+          <Card.Title className="h5 mb-3">Recommended For You</Card.Title>
+          {loadingEvents ? (
+            <div className="d-flex align-items-center gap-2">
+              <Spinner animation="border" size="sm" />
+              <span>Loading recommendations...</span>
+            </div>
+          ) : recommendedEvents.length === 0 ? (
+            <div className="text-muted">No personalized recommendations yet.</div>
+          ) : (
+            <Row className="g-3">
+              {recommendedEvents.map((event) => (
+                <Col key={`recommended-${event.id}`} md={6} lg={4}>
+                  <EventCard
+                    event={event}
+                    onOpenDetail={(eventId) => {
+                      navigate(`/participant/events/${eventId}`);
+                    }}
+                  />
+                </Col>
+              ))}
+            </Row>
+          )}
         </Card.Body>
       </Card>
 

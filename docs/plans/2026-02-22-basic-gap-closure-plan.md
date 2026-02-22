@@ -170,4 +170,3 @@ Basic-feature closure is complete when Steps 1-8 are done and verified manually 
 - participant: browse/recommendation impact, event detail register/purchase, ticket with QR, profile edits
 - organizer: lifecycle-correct editing, locked form behavior, event participants search/filter + csv, dashboard analytics, discord webhook post
 - admin: organizer management still functional
-

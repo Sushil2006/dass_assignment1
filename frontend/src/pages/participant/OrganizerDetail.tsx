@@ -192,6 +192,12 @@ export default function OrganizerDetail() {
                     Category: {organizer.category ?? "-"}
                   </div>
                   <div className="text-muted">{organizer.description ?? "No description available."}</div>
+                  <div className="small mt-2">
+                    <strong>Contact Email:</strong> {organizer.contactEmail ?? "-"}
+                  </div>
+                  <div className="small">
+                    <strong>Contact Number:</strong> {organizer.contactNumber ?? "-"}
+                  </div>
                 </div>
                 {isFollowed ? (
                   <Button

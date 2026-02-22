@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { type Request, Router } from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { getDb } from "../db/client";
@@ -6,6 +6,9 @@ import { collections } from "../db/collections";
 import { requireAuth, requireRole } from "../middleware/auth";
 import type { RegistrationDoc } from "../db/models";
 import { toCsvString } from "../utils/csv";
+import { AUTH_COOKIE_NAME } from "../config/cookies";
+import { verifyJwt } from "../utils/jwt";
+import { postEventAnnouncementToDiscordSafe } from "../utils/discord";
 
 export const eventsRouter = Router();
 
@@ -144,6 +147,27 @@ type EventAnalyticsSummary = {
   merchCount: number;
   registrations24h: number;
   estimatedRevenue: number;
+};
+
+type OrganizerUserDoc = {
+  _id: ObjectId;
+  role: "organizer";
+  name: string;
+  isDisabled?: boolean;
+  discordWebhookUrl?: string;
+};
+
+type ParticipantPreferenceDoc = {
+  _id: ObjectId;
+  role: "participant";
+  interests?: string[];
+  followedOrganizerIds?: ObjectId[];
+};
+
+type ParticipantViewerContext = {
+  id: ObjectId;
+  interests: string[];
+  followedOrganizerIds: string[];
 };
 
 const normalFormFieldTypes = [
@@ -286,11 +310,13 @@ const updateEventStatusSchema = z.object({
 const publicEventsQuerySchema = z
   .object({
     q: z.string().trim().min(1).max(120).optional(),
+    organizer: z.string().trim().min(1).max(120).optional(),
     type: z.enum(eventTypes).optional(),
     eligibility: z.string().trim().min(1).max(160).optional(),
     status: z.enum(publicQueryStatuses).optional(),
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
+    followedOnly: z.boolean().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.from && data.to && data.to < data.from) {
@@ -318,6 +344,16 @@ function readQueryStringValue(value: unknown): string | undefined {
   return undefined;
 }
 
+function readQueryBooleanValue(value: unknown): boolean | undefined {
+  const raw = readQueryStringValue(value);
+  if (!raw) return undefined;
+
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") return true;
+  if (normalized === "false" || normalized === "0") return false;
+  return undefined;
+}
+
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -342,11 +378,6 @@ function buildPublicEventsFilter(
 
   if (query.eligibility) {
     filter.eligibility = new RegExp(`^${escapeRegex(query.eligibility)}$`, "i");
-  }
-
-  if (query.q) {
-    const qRegex = new RegExp(escapeRegex(query.q), "i");
-    filter.$or = [{ name: qRegex }, { description: qRegex }, { tags: qRegex }];
   }
 
   if (query.from || query.to) {
@@ -429,6 +460,74 @@ function toPublicEventResponse(event: StoredEventDoc) {
     ...toEventResponse(event),
     canRegister: canRegisterNow(event, new Date()),
   };
+}
+
+async function getOptionalParticipantViewer(
+  req: Request,
+): Promise<ParticipantViewerContext | null> {
+  const token = req.cookies?.[AUTH_COOKIE_NAME];
+  if (!token || typeof token !== "string") return null;
+
+  try {
+    const payload = verifyJwt(token);
+    if (payload.role !== "participant") return null;
+
+    const participantId = parseObjectId(payload.userId);
+    if (!participantId) return null;
+
+    const users = getDb().collection<ParticipantPreferenceDoc>(collections.users);
+    const participant = await users.findOne({
+      _id: participantId,
+      role: "participant",
+    });
+    if (!participant) return null;
+
+    return {
+      id: participantId,
+      interests: (participant.interests ?? [])
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => value.length > 0),
+      followedOrganizerIds: (participant.followedOrganizerIds ?? []).map((id) =>
+        id.toString(),
+      ),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function countInterestMatches(
+  event: StoredEventDoc,
+  normalizedInterests: string[],
+): number {
+  if (normalizedInterests.length === 0) return 0;
+
+  const eventTags = new Set(event.tags.map((tag) => tag.trim().toLowerCase()));
+  let matches = 0;
+
+  for (const interest of normalizedInterests) {
+    if (eventTags.has(interest)) {
+      matches += 1;
+    }
+  }
+
+  return matches;
+}
+
+function scoreEventForParticipant(
+  event: StoredEventDoc,
+  viewer: ParticipantViewerContext,
+): number {
+  let score = 0;
+
+  if (viewer.followedOrganizerIds.includes(event.organizerId.toString())) {
+    score += 100;
+  }
+
+  const interestMatches = countInterestMatches(event, viewer.interests);
+  score += interestMatches * 25;
+
+  return score;
 }
 
 function isActiveParticipationStatus(status: ParticipationStatus): boolean {
@@ -1114,6 +1213,77 @@ eventsRouter.patch(
         return res.status(404).json({ error: { message: "Event not found" } });
       }
 
+      const requestedFields = Object.keys(parsed.data) as Array<
+        keyof z.infer<typeof updateEventSchema>
+      >;
+
+      if (existing.status === "CLOSED" || existing.status === "COMPLETED") {
+        return res.status(400).json({
+          error: {
+            message:
+              "Closed or completed events cannot be edited. Use status update only.",
+          },
+        });
+      }
+
+      if (existing.status === "PUBLISHED") {
+        const allowedPublishedFields = new Set<keyof z.infer<typeof updateEventSchema>>([
+          "description",
+          "regDeadline",
+          "regLimit",
+        ]);
+        const invalidFields = requestedFields.filter(
+          (field) => !allowedPublishedFields.has(field),
+        );
+        if (invalidFields.length > 0) {
+          return res.status(400).json({
+            error: {
+              message:
+                "Published events allow only description update, deadline extension, and limit increase",
+            },
+          });
+        }
+
+        if (
+          parsed.data.regDeadline !== undefined &&
+          parsed.data.regDeadline < existing.regDeadline
+        ) {
+          return res.status(400).json({
+            error: { message: "Published event deadline can only be extended" },
+          });
+        }
+
+        if (
+          parsed.data.regLimit !== undefined &&
+          parsed.data.regLimit < existing.regLimit
+        ) {
+          return res.status(400).json({
+            error: { message: "Published event registration limit can only increase" },
+          });
+        }
+      }
+
+      if (parsed.data.normalForm !== undefined && existing.type === "NORMAL") {
+        const normalFormConfig = existing.normalForm;
+        if (normalFormConfig?.isFormLocked) {
+          const registrations = db.collection<StoredParticipationDoc>(
+            collections.registrations,
+          );
+          const registrationCount = await registrations.countDocuments({
+            eventId,
+          });
+
+          if (registrationCount > 0) {
+            return res.status(400).json({
+              error: {
+                message:
+                  "Form is locked after first registration and cannot be edited",
+              },
+            });
+          }
+        }
+      }
+
       const nextStartDate = parsed.data.startDate ?? existing.startDate;
       const nextEndDate = parsed.data.endDate ?? existing.endDate;
       if (nextEndDate <= nextStartDate) {
@@ -1326,6 +1496,29 @@ eventsRouter.patch(
         updatedAt,
       };
 
+      if (
+        parsed.data.status === "PUBLISHED" &&
+        existing.status !== "PUBLISHED"
+      ) {
+        const users = db.collection<OrganizerUserDoc>(collections.users);
+        const organizer = await users.findOne({
+          _id: organizerId,
+          role: "organizer",
+        });
+
+        if (organizer?.discordWebhookUrl) {
+          await postEventAnnouncementToDiscordSafe({
+            webhookUrl: organizer.discordWebhookUrl,
+            organizerName: organizer.name,
+            eventName: existing.name,
+            eventType: existing.type,
+            regDeadline: existing.regDeadline,
+            startDate: existing.startDate,
+            endDate: existing.endDate,
+          });
+        }
+      }
+
       return res.json({ event: toEventResponse(updatedEvent) });
     } catch (err) {
       return next(err);
@@ -1379,11 +1572,13 @@ eventsRouter.get("/", async (req, res, next) => {
   try {
     const parsed = publicEventsQuerySchema.safeParse({
       q: readQueryStringValue(req.query.q),
+      organizer: readQueryStringValue(req.query.organizer),
       type: readQueryStringValue(req.query.type),
       eligibility: readQueryStringValue(req.query.eligibility),
       status: readQueryStringValue(req.query.status),
       from: readQueryStringValue(req.query.from),
       to: readQueryStringValue(req.query.to),
+      followedOnly: readQueryBooleanValue(req.query.followedOnly),
     });
 
     if (!parsed.success) {
@@ -1394,20 +1589,132 @@ eventsRouter.get("/", async (req, res, next) => {
 
     const db = getDb();
     const events = db.collection<StoredEventDoc>(collections.events);
+    const organizers = db.collection<OrganizerUserDoc>(collections.users);
+    const viewer = await getOptionalParticipantViewer(req);
     const filter = buildPublicEventsFilter(parsed.data);
+    let scopedOrganizerIds: ObjectId[] | null = null;
+
+    if (parsed.data.organizer) {
+      const organizerRegex = new RegExp(escapeRegex(parsed.data.organizer), "i");
+      const matchedOrganizers = await organizers
+        .find({
+          role: "organizer",
+          isDisabled: { $ne: true },
+          name: organizerRegex,
+        })
+        .toArray();
+
+      scopedOrganizerIds = matchedOrganizers.map((entry) => entry._id);
+    }
+
+    if (parsed.data.followedOnly) {
+      if (!viewer) {
+        return res
+          .status(401)
+          .json({ error: { message: "Not authenticated" } });
+      }
+
+      const followedIds = viewer.followedOrganizerIds.map((id) => new ObjectId(id));
+      scopedOrganizerIds =
+        scopedOrganizerIds === null
+          ? followedIds
+          : scopedOrganizerIds.filter((id) =>
+              viewer.followedOrganizerIds.includes(id.toString()),
+            );
+    }
+
+    if (scopedOrganizerIds && scopedOrganizerIds.length === 0) {
+      return res.json({ events: [], recommendedEvents: [] });
+    }
+
+    if (scopedOrganizerIds) {
+      filter.organizerId = { $in: scopedOrganizerIds };
+    }
+
     const foundEvents = await events
       .find(filter)
       .sort({ startDate: 1, createdAt: -1 })
       .toArray();
 
-    const filteredEvents =
+    const eventOrganizerIds = [
+      ...new Set(foundEvents.map((event) => event.organizerId.toString())),
+    ].map((id) => new ObjectId(id));
+    const organizerDocs =
+      eventOrganizerIds.length > 0
+        ? await organizers
+            .find({
+              _id: { $in: eventOrganizerIds },
+              role: "organizer",
+            })
+            .toArray()
+        : [];
+    const organizerNameById = new Map(
+      organizerDocs.map((entry) => [entry._id.toString(), entry.name]),
+    );
+
+    const statusFiltered =
       parsed.data.status === "ONGOING"
         ? foundEvents.filter(
             (event) => deriveDisplayStatus(event, new Date()) === "ONGOING",
           )
         : foundEvents;
 
-    return res.json({ events: filteredEvents.map(toPublicEventResponse) });
+    const qFiltered = parsed.data.q
+      ? (() => {
+          const qRegex = new RegExp(escapeRegex(parsed.data.q), "i");
+          return statusFiltered.filter((event) => {
+            const organizerName =
+              organizerNameById.get(event.organizerId.toString()) ?? "";
+
+            if (qRegex.test(event.name)) return true;
+            if (qRegex.test(event.description)) return true;
+            if (event.tags.some((tag) => qRegex.test(tag))) return true;
+            if (qRegex.test(organizerName)) return true;
+            return false;
+          });
+        })()
+      : statusFiltered;
+
+    const now = new Date();
+    const ranked = qFiltered.map((event) => ({
+      event,
+      preferenceScore: viewer ? scoreEventForParticipant(event, viewer) : 0,
+    }));
+
+    ranked.sort((a, b) => {
+      if (viewer && b.preferenceScore !== a.preferenceScore) {
+        return b.preferenceScore - a.preferenceScore;
+      }
+
+      const byStartDate =
+        a.event.startDate.getTime() - b.event.startDate.getTime();
+      if (byStartDate !== 0) return byStartDate;
+
+      return b.event.createdAt.getTime() - a.event.createdAt.getTime();
+    });
+
+    const orderedEvents = ranked.map(({ event, preferenceScore }) => ({
+      ...toPublicEventResponse(event),
+      organizerName: organizerNameById.get(event.organizerId.toString()) ?? null,
+      preferenceScore,
+    }));
+
+    const recommendedEvents = viewer
+      ? ranked
+          .filter(
+            ({ event, preferenceScore }) =>
+              preferenceScore > 0 && canRegisterNow(event, now),
+          )
+          .slice(0, 5)
+          .map(({ event, preferenceScore }) => ({
+            ...toPublicEventResponse(event),
+            organizerName:
+              organizerNameById.get(event.organizerId.toString()) ?? null,
+            preferenceScore,
+          }))
+      : [];
+
+    return res.json({ events: orderedEvents, recommendedEvents });
   } catch (err) {
     return next(err);
   }

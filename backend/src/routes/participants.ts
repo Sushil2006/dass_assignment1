@@ -107,6 +107,8 @@ type ParticipantUserDoc = {
   email: string;
   role: "participant";
   name: string;
+  firstName?: string;
+  lastName?: string;
   createdAt: Date;
   participantType?: ParticipantType;
   collegeOrOrganization?: string;
@@ -132,7 +134,8 @@ const publicPersistedStatuses: PersistedEventStatus[] = [
 ];
 
 const profilePatchSchema = z.object({
-  name: z.string().trim().min(1).max(120).optional(),
+  firstName: z.string().trim().min(1).max(80).optional(),
+  lastName: z.string().trim().min(1).max(80).optional(),
   contactNumber: z.union([z.string().trim().min(7).max(20), z.literal("")]).optional(),
   collegeOrOrganization: z
     .union([z.string().trim().min(2).max(120), z.literal("")])
@@ -168,10 +171,34 @@ function normalizeInterests(interests: string[]): string[] {
   return normalized;
 }
 
+function splitFallbackName(name: string): { firstName: string; lastName: string } {
+  const normalized = name.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return { firstName: "", lastName: "" };
+  }
+
+  const parts = normalized.split(" ");
+  if (parts.length === 1) {
+    return { firstName: parts[0] ?? "", lastName: "" };
+  }
+
+  return {
+    firstName: parts[0] ?? "",
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
 function toParticipantProfileResponse(user: ParticipantUserDoc) {
+  const fallback = splitFallbackName(user.name);
+  const firstName = user.firstName ?? fallback.firstName;
+  const lastName = user.lastName ?? fallback.lastName;
+  const fullName = `${firstName} ${lastName}`.trim() || user.name;
+
   return {
     id: user._id.toString(),
-    name: user.name,
+    name: fullName,
+    firstName,
+    lastName,
     email: user.email,
     participantType: user.participantType ?? null,
     collegeOrOrganization: user.collegeOrOrganization ?? "",
@@ -251,11 +278,34 @@ participantsRouter.patch(
         });
       }
 
+      const users = getDb().collection<ParticipantUserDoc>(collections.users);
+      const existing = await users.findOne({
+        _id: participantId,
+        role: "participant",
+      });
+      if (!existing) {
+        return res.status(404).json({ error: { message: "Participant not found" } });
+      }
+
       const setPayload: Partial<ParticipantUserDoc> = {};
       const unsetPayload: Record<string, ""> = {};
 
-      if (parsed.data.name !== undefined) {
-        setPayload.name = parsed.data.name;
+      const existingNameFallback = splitFallbackName(existing.name);
+      const currentFirstName = existing.firstName ?? existingNameFallback.firstName;
+      const currentLastName = existing.lastName ?? existingNameFallback.lastName;
+      const nextFirstName = parsed.data.firstName ?? currentFirstName;
+      const nextLastName = parsed.data.lastName ?? currentLastName;
+
+      if (parsed.data.firstName !== undefined || parsed.data.lastName !== undefined) {
+        if (!nextFirstName || !nextLastName) {
+          return res.status(400).json({
+            error: { message: "firstName and lastName are required" },
+          });
+        }
+
+        setPayload.firstName = nextFirstName;
+        setPayload.lastName = nextLastName;
+        setPayload.name = `${nextFirstName} ${nextLastName}`.trim();
       }
 
       if (parsed.data.contactNumber !== undefined) {
@@ -285,7 +335,6 @@ participantsRouter.patch(
         return res.status(400).json({ error: { message: "No fields to update" } });
       }
 
-      const users = getDb().collection<ParticipantUserDoc>(collections.users);
       const updateDoc: {
         $set?: Partial<ParticipantUserDoc>;
         $unset?: Record<string, "">;

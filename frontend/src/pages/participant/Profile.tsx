@@ -7,6 +7,8 @@ import ChangePassword from "../common/ChangePassword";
 type ParticipantProfile = {
   id: string;
   name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   participantType: "iiit" | "non-iiit" | null;
   collegeOrOrganization: string;
@@ -51,7 +53,8 @@ export default function Profile() {
   const [profileId, setProfileId] = useState("");
   const [email, setEmail] = useState("");
   const [participantType, setParticipantType] = useState<ParticipantProfile["participantType"]>(null);
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [contactNumber, setContactNumber] = useState("");
   const [collegeOrOrganization, setCollegeOrOrganization] = useState("");
   const [interestsText, setInterestsText] = useState("");
@@ -73,7 +76,8 @@ export default function Profile() {
       setProfileId(profile.id);
       setEmail(profile.email);
       setParticipantType(profile.participantType);
-      setName(profile.name ?? "");
+      setFirstName(profile.firstName ?? "");
+      setLastName(profile.lastName ?? "");
       setContactNumber(profile.contactNumber ?? "");
       setCollegeOrOrganization(profile.collegeOrOrganization ?? "");
       setInterestsText(interestsToText(profile.interests ?? []));
@@ -100,7 +104,8 @@ export default function Profile() {
       const res = await apiFetch("/api/participants/me/profile", {
         method: "PATCH",
         body: JSON.stringify({
-          name: name.trim(),
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
           contactNumber: contactNumber.trim(),
           collegeOrOrganization: collegeOrOrganization.trim(),
           interests: parseInterestsFromText(interestsText),
@@ -112,7 +117,8 @@ export default function Profile() {
       const profile = data.profile;
       if (!profile) throw new Error("Profile not found");
 
-      setName(profile.name ?? "");
+      setFirstName(profile.firstName ?? "");
+      setLastName(profile.lastName ?? "");
       setContactNumber(profile.contactNumber ?? "");
       setCollegeOrOrganization(profile.collegeOrOrganization ?? "");
       setInterestsText(interestsToText(profile.interests ?? []));
@@ -210,11 +216,26 @@ export default function Profile() {
                     </Col>
 
                     <Col md={6}>
-                      <Form.Group controlId="participant-name">
-                        <Form.Label>Name</Form.Label>
+                      <Form.Group controlId="participant-first-name">
+                        <Form.Label>First Name</Form.Label>
                         <Form.Control
-                          value={name}
-                          onChange={(currentEvent) => setName(currentEvent.target.value)}
+                          value={firstName}
+                          onChange={(currentEvent) =>
+                            setFirstName(currentEvent.target.value)
+                          }
+                          required
+                        />
+                      </Form.Group>
+                    </Col>
+
+                    <Col md={6}>
+                      <Form.Group controlId="participant-last-name">
+                        <Form.Label>Last Name</Form.Label>
+                        <Form.Control
+                          value={lastName}
+                          onChange={(currentEvent) =>
+                            setLastName(currentEvent.target.value)
+                          }
                           required
                         />
                       </Form.Group>

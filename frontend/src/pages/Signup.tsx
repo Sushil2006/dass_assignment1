@@ -7,7 +7,8 @@ export default function Signup() {
   const navigate = useNavigate();
 
   // Participant signup form state.
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -21,7 +22,7 @@ export default function Signup() {
     setBusy(true);
 
     try {
-      await signup(name, email, password);
+      await signup(firstName, lastName, email, password);
       // Signup is participant-only in this milestone.
       navigate("/participant", { replace: true });
     } catch (err) {
@@ -40,14 +41,26 @@ export default function Signup() {
           {error ? <Alert variant="danger">{error}</Alert> : null}
 
           <Form onSubmit={onSubmit}>
-            <Form.Group className="mb-3" controlId="name">
-              <Form.Label>Name</Form.Label>
+            <Form.Group className="mb-3" controlId="firstName">
+              <Form.Label>First Name</Form.Label>
               <Form.Control
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
                 type="text"
                 autoComplete="name"
-                placeholder="Your name"
+                placeholder="Your first name"
+                required
+              />
+            </Form.Group>
+
+            <Form.Group className="mb-3" controlId="lastName">
+              <Form.Label>Last Name</Form.Label>
+              <Form.Control
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                type="text"
+                autoComplete="family-name"
+                placeholder="Your last name"
                 required
               />
             </Form.Group>

@@ -5,6 +5,8 @@ export type AuthUser = {
   email: string;
   role: "participant" | "organizer" | "admin";
   name: string;
+  firstName?: string;
+  lastName?: string;
   createdAt: string;
 };
 
@@ -48,14 +50,21 @@ export async function logout(): Promise<void> {
 }
 
 export async function signup(
-  name: string,
+  firstName: string,
+  lastName: string,
   email: string,
   password: string,
 ): Promise<AuthUser> {
   const res = await apiFetch("/api/auth/signup", {
     method: "POST",
     // self-signup is only for participants.
-    body: JSON.stringify({ name, email, password, role: "participant" }),
+    body: JSON.stringify({
+      firstName,
+      lastName,
+      email,
+      password,
+      role: "participant",
+    }),
   });
 
   if (!res.ok) throw new Error(await readErrorMessage(res));

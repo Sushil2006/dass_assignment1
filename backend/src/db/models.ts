@@ -14,6 +14,8 @@ export type UserDoc = {
   passwordHash: string;
   role: UserRole;
   name: string;
+  firstName?: string;
+  lastName?: string;
   createdAt: Date;
   participantType?: ParticipantType;
   collegeOrOrganization?: string;

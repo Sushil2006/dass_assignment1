@@ -16,15 +16,31 @@ import {
 
 export const authRouter = Router();
 
-const signupSchema = z.object({
-  name: z.string().trim().min(1),
-  email: z.email(),
-  password: z.string().min(8),
-  role: z.enum(userRoles).default("participant"),
-  participantType: z.enum(participantTypes).optional(),
-  collegeOrOrganization: z.string().trim().min(2).max(120).optional(),
-  contactNumber: z.string().trim().min(7).max(20).optional(),
-});
+const signupSchema = z
+  .object({
+    firstName: z.string().trim().min(1).max(80).optional(),
+    lastName: z.string().trim().min(1).max(80).optional(),
+    name: z.string().trim().min(1).optional(),
+    email: z.email(),
+    password: z.string().min(8),
+    role: z.enum(userRoles).default("participant"),
+    participantType: z.enum(participantTypes).optional(),
+    collegeOrOrganization: z.string().trim().min(2).max(120).optional(),
+    contactNumber: z.string().trim().min(7).max(20).optional(),
+  })
+  .superRefine((data, ctx) => {
+    const hasStructuredName =
+      typeof data.firstName === "string" && typeof data.lastName === "string";
+    const hasSingleName = typeof data.name === "string";
+
+    if (!hasStructuredName && !hasSingleName) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["firstName"],
+        message: "firstName and lastName are required",
+      });
+    }
+  });
 
 const loginSchema = z.object({
   email: z.email(),
@@ -36,14 +52,22 @@ function toPublicUser(user: {
   _id: ObjectId;
   email: string;
   role: string;
-  name: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
   createdAt: Date;
 }) {
+  const firstName = user.firstName?.trim() ?? "";
+  const lastName = user.lastName?.trim() ?? "";
+  const mergedName = `${firstName} ${lastName}`.trim();
+
   return {
     id: user._id.toString(),
     email: user.email,
     role: user.role,
-    name: user.name,
+    name: mergedName || user.name || "",
+    firstName,
+    lastName,
     createdAt: user.createdAt,
   };
 }
@@ -54,6 +78,24 @@ function isIiitEmail(email: string): boolean {
   return env.IIIT_EMAIL_DOMAINS.some(
     (allowedDomain) => domain === allowedDomain,
   );
+}
+
+function splitFullName(rawName: string): { firstName: string; lastName: string } {
+  const normalized = rawName.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return { firstName: "", lastName: "" };
+  }
+
+  const parts = normalized.split(" ");
+  if (parts.length === 1) {
+    return { firstName: parts[0] ?? "", lastName: "" };
+  }
+
+  const [firstName = "", ...rest] = parts;
+  return {
+    firstName,
+    lastName: rest.join(" "),
+  };
 }
 
 authRouter.post("/signup", async (req, res, next) => {
@@ -67,8 +109,25 @@ authRouter.post("/signup", async (req, res, next) => {
 
     const db = getDb();
     const users = db.collection<UserDoc>("users");
-    const { name, password, collegeOrOrganization, contactNumber } =
+    const { password, collegeOrOrganization, contactNumber } =
       parsed.data;
+
+    const fallbackNameParts = parsed.data.name
+      ? splitFullName(parsed.data.name)
+      : { firstName: "", lastName: "" };
+    const firstName =
+      parsed.data.firstName?.trim() || fallbackNameParts.firstName;
+    const lastName =
+      parsed.data.lastName?.trim() || fallbackNameParts.lastName;
+    const fullName = `${firstName} ${lastName}`.trim();
+
+    if (!firstName || !lastName) {
+      return res.status(400).json({
+        error: {
+          message: "firstName and lastName are required",
+        },
+      });
+    }
 
     const normalizedEmail = parsed.data.email.toLowerCase().trim();
     const isIiitDomainEmail = isIiitEmail(normalizedEmail);
@@ -106,7 +165,9 @@ authRouter.post("/signup", async (req, res, next) => {
 
     const userToInsert: UserDoc = {
       _id: new ObjectId(),
-      name: name.trim(),
+      name: fullName,
+      firstName,
+      lastName,
       email: normalizedEmail,
       passwordHash,
       role: "participant",
@@ -134,7 +195,9 @@ authRouter.post("/signup", async (req, res, next) => {
 
     const user = {
       _id: insertResult.insertedId,
-      name: name.trim(),
+      name: fullName,
+      firstName,
+      lastName,
       email: normalizedEmail,
       role: "participant",
       createdAt,
