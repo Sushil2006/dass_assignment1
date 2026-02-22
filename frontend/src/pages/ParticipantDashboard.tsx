@@ -37,6 +37,34 @@ export default function ParticipantDashboard() {
             </Card.Body>
           </Card>
         </Col>
+
+        <Col md={6}>
+          <Card className="h-100 border">
+            <Card.Body>
+              <Card.Title>Clubs / Organizers</Card.Title>
+              <Card.Text className="text-muted">
+                Follow organizers and browse their upcoming/past events.
+              </Card.Text>
+              <Link className="btn btn-outline-primary btn-sm" to="/participant/organizers">
+                Open Organizers
+              </Link>
+            </Card.Body>
+          </Card>
+        </Col>
+
+        <Col md={6}>
+          <Card className="h-100 border">
+            <Card.Body>
+              <Card.Title>Profile</Card.Title>
+              <Card.Text className="text-muted">
+                Update participant profile, onboarding preferences, and password.
+              </Card.Text>
+              <Link className="btn btn-outline-primary btn-sm" to="/participant/profile">
+                Open Profile
+              </Link>
+            </Card.Body>
+          </Card>
+        </Col>
       </Row>
     </Container>
   );

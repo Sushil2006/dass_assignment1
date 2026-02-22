@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { ObjectId } from "mongodb";
+import { z } from "zod";
 import { getDb } from "../db/client";
 import { collections } from "../db/collections";
 import { requireAuth, requireRole } from "../middleware/auth";
@@ -10,6 +11,7 @@ type EventType = "NORMAL" | "MERCH";
 type PersistedEventStatus = "DRAFT" | "PUBLISHED" | "CLOSED" | "COMPLETED";
 type DisplayEventStatus = PersistedEventStatus | "ONGOING";
 type ParticipationStatus = "pending" | "confirmed" | "cancelled" | "rejected";
+type ParticipantType = "iiit" | "non-iiit";
 
 type NormalFormFieldType =
   | "text"
@@ -100,17 +102,451 @@ type StoredEventDoc = {
     | undefined;
 };
 
+type ParticipantUserDoc = {
+  _id: ObjectId;
+  email: string;
+  role: "participant";
+  name: string;
+  createdAt: Date;
+  participantType?: ParticipantType;
+  collegeOrOrganization?: string;
+  contactNumber?: string;
+  interests?: string[];
+  followedOrganizerIds?: ObjectId[];
+  onboardingCompleted?: boolean;
+};
+
+type OrganizerUserDoc = {
+  _id: ObjectId;
+  role: "organizer";
+  name: string;
+  organizerCategory?: string;
+  organizerDescription?: string;
+  isDisabled?: boolean;
+};
+
 const publicPersistedStatuses: PersistedEventStatus[] = [
   "PUBLISHED",
   "CLOSED",
   "COMPLETED",
 ];
 
+const profilePatchSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  contactNumber: z.union([z.string().trim().min(7).max(20), z.literal("")]).optional(),
+  collegeOrOrganization: z
+    .union([z.string().trim().min(2).max(120), z.literal("")])
+    .optional(),
+  interests: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
+});
+
+const onboardingSchema = z.object({
+  interests: z.array(z.string().trim().min(1).max(80)).max(30).default([]),
+  followedOrganizerIds: z.array(z.string().trim().min(1)).max(200).default([]),
+});
+
 function parseObjectId(rawId: unknown): ObjectId | null {
   if (typeof rawId !== "string") return null;
   if (!ObjectId.isValid(rawId)) return null;
   return new ObjectId(rawId);
 }
+
+function normalizeInterests(interests: string[]): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const value of interests) {
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(trimmed);
+  }
+
+  return normalized;
+}
+
+function toParticipantProfileResponse(user: ParticipantUserDoc) {
+  return {
+    id: user._id.toString(),
+    name: user.name,
+    email: user.email,
+    participantType: user.participantType ?? null,
+    collegeOrOrganization: user.collegeOrOrganization ?? "",
+    contactNumber: user.contactNumber ?? "",
+    interests: user.interests ?? [],
+    followedOrganizerIds: (user.followedOrganizerIds ?? []).map((id) =>
+      id.toString(),
+    ),
+    onboardingCompleted: user.onboardingCompleted ?? false,
+    createdAt: user.createdAt,
+  };
+}
+
+function toPublicFollowedOrganizerResponse(organizer: OrganizerUserDoc) {
+  return {
+    id: organizer._id.toString(),
+    name: organizer.name,
+    category: organizer.organizerCategory ?? null,
+    description: organizer.organizerDescription ?? null,
+  };
+}
+
+// participant gets own profile and stored onboarding preferences
+participantsRouter.get(
+  "/me/profile",
+  requireAuth,
+  requireRole("participant"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participantId = parseObjectId(authUser.id);
+      if (!participantId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const users = getDb().collection<ParticipantUserDoc>(collections.users);
+      const participant = await users.findOne({
+        _id: participantId,
+        role: "participant",
+      });
+      if (!participant) {
+        return res.status(404).json({ error: { message: "Participant not found" } });
+      }
+
+      return res.json({ profile: toParticipantProfileResponse(participant) });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// participant updates editable profile fields
+participantsRouter.patch(
+  "/me/profile",
+  requireAuth,
+  requireRole("participant"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participantId = parseObjectId(authUser.id);
+      if (!participantId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const parsed = profilePatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: { message: "Invalid request", details: parsed.error.flatten() },
+        });
+      }
+
+      const setPayload: Partial<ParticipantUserDoc> = {};
+      const unsetPayload: Record<string, ""> = {};
+
+      if (parsed.data.name !== undefined) {
+        setPayload.name = parsed.data.name;
+      }
+
+      if (parsed.data.contactNumber !== undefined) {
+        if (parsed.data.contactNumber === "") {
+          unsetPayload.contactNumber = "";
+        } else {
+          setPayload.contactNumber = parsed.data.contactNumber;
+        }
+      }
+
+      if (parsed.data.collegeOrOrganization !== undefined) {
+        if (parsed.data.collegeOrOrganization === "") {
+          unsetPayload.collegeOrOrganization = "";
+        } else {
+          setPayload.collegeOrOrganization = parsed.data.collegeOrOrganization;
+        }
+      }
+
+      if (parsed.data.interests !== undefined) {
+        setPayload.interests = normalizeInterests(parsed.data.interests);
+      }
+
+      if (
+        Object.keys(setPayload).length === 0 &&
+        Object.keys(unsetPayload).length === 0
+      ) {
+        return res.status(400).json({ error: { message: "No fields to update" } });
+      }
+
+      const users = getDb().collection<ParticipantUserDoc>(collections.users);
+      const updateDoc: {
+        $set?: Partial<ParticipantUserDoc>;
+        $unset?: Record<string, "">;
+      } = {};
+
+      if (Object.keys(setPayload).length > 0) {
+        updateDoc.$set = setPayload;
+      }
+
+      if (Object.keys(unsetPayload).length > 0) {
+        updateDoc.$unset = unsetPayload;
+      }
+
+      await users.updateOne(
+        { _id: participantId, role: "participant" },
+        updateDoc,
+      );
+
+      const updated = await users.findOne({ _id: participantId, role: "participant" });
+      if (!updated) {
+        return res.status(404).json({ error: { message: "Participant not found" } });
+      }
+
+      return res.json({ profile: toParticipantProfileResponse(updated) });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// participant completes onboarding by saving interests + followed organizers
+participantsRouter.post(
+  "/me/onboarding",
+  requireAuth,
+  requireRole("participant"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participantId = parseObjectId(authUser.id);
+      if (!participantId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const parsed = onboardingSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: { message: "Invalid request", details: parsed.error.flatten() },
+        });
+      }
+
+      const followedOrganizerObjectIds: ObjectId[] = [];
+      for (const rawId of parsed.data.followedOrganizerIds) {
+        const organizerId = parseObjectId(rawId);
+        if (!organizerId) {
+          return res.status(400).json({
+            error: { message: `Invalid organizer id: ${rawId}` },
+          });
+        }
+        followedOrganizerObjectIds.push(organizerId);
+      }
+
+      const users = getDb().collection<ParticipantUserDoc | OrganizerUserDoc>(
+        collections.users,
+      );
+
+      if (followedOrganizerObjectIds.length > 0) {
+        const activeFollowableCount = await users.countDocuments({
+          _id: { $in: followedOrganizerObjectIds },
+          role: "organizer",
+          isDisabled: { $ne: true },
+        });
+
+        if (activeFollowableCount !== followedOrganizerObjectIds.length) {
+          return res.status(400).json({
+            error: { message: "One or more followedOrganizerIds are invalid" },
+          });
+        }
+      }
+
+      await users.updateOne(
+        { _id: participantId, role: "participant" },
+        {
+          $set: {
+            interests: normalizeInterests(parsed.data.interests),
+            followedOrganizerIds: followedOrganizerObjectIds,
+            onboardingCompleted: true,
+          },
+        },
+      );
+
+      const updated = await users.findOne({
+        _id: participantId,
+        role: "participant",
+      });
+      if (!updated || updated.role !== "participant") {
+        return res.status(404).json({ error: { message: "Participant not found" } });
+      }
+
+      return res.json({ profile: toParticipantProfileResponse(updated) });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// participant follows one active organizer
+participantsRouter.post(
+  "/me/follows/:organizerId",
+  requireAuth,
+  requireRole("participant"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participantId = parseObjectId(authUser.id);
+      if (!participantId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const organizerId = parseObjectId(req.params.organizerId);
+      if (!organizerId) {
+        return res.status(400).json({ error: { message: "Invalid organizer id" } });
+      }
+
+      const users = getDb().collection<ParticipantUserDoc | OrganizerUserDoc>(
+        collections.users,
+      );
+      const organizer = await users.findOne({
+        _id: organizerId,
+        role: "organizer",
+        isDisabled: { $ne: true },
+      });
+      if (!organizer) {
+        return res.status(404).json({ error: { message: "Organizer not found" } });
+      }
+
+      await users.updateOne(
+        { _id: participantId, role: "participant" },
+        { $addToSet: { followedOrganizerIds: organizerId } },
+      );
+
+      const updated = await users.findOne({
+        _id: participantId,
+        role: "participant",
+      });
+      if (!updated || updated.role !== "participant") {
+        return res.status(404).json({ error: { message: "Participant not found" } });
+      }
+
+      return res.json({ profile: toParticipantProfileResponse(updated) });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// participant unfollows one organizer
+participantsRouter.delete(
+  "/me/follows/:organizerId",
+  requireAuth,
+  requireRole("participant"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participantId = parseObjectId(authUser.id);
+      if (!participantId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const organizerId = parseObjectId(req.params.organizerId);
+      if (!organizerId) {
+        return res.status(400).json({ error: { message: "Invalid organizer id" } });
+      }
+
+      const users = getDb().collection<ParticipantUserDoc>(collections.users);
+      await users.updateOne(
+        { _id: participantId, role: "participant" },
+        { $pull: { followedOrganizerIds: organizerId } },
+      );
+
+      const updated = await users.findOne({
+        _id: participantId,
+        role: "participant",
+      });
+      if (!updated) {
+        return res.status(404).json({ error: { message: "Participant not found" } });
+      }
+
+      return res.json({ profile: toParticipantProfileResponse(updated) });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// participant lists currently followed active organizers
+participantsRouter.get(
+  "/me/follows",
+  requireAuth,
+  requireRole("participant"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participantId = parseObjectId(authUser.id);
+      if (!participantId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const users = getDb().collection<ParticipantUserDoc | OrganizerUserDoc>(
+        collections.users,
+      );
+
+      const participant = await users.findOne({
+        _id: participantId,
+        role: "participant",
+      });
+      if (!participant || participant.role !== "participant") {
+        return res.status(404).json({ error: { message: "Participant not found" } });
+      }
+
+      const followedIds = participant.followedOrganizerIds ?? [];
+      if (followedIds.length === 0) {
+        return res.json({ organizers: [] });
+      }
+
+      const organizers = await users
+        .find({
+          _id: { $in: followedIds },
+          role: "organizer",
+          isDisabled: { $ne: true },
+        })
+        .toArray();
+
+      return res.json({
+        organizers: organizers
+          .filter(
+            (organizer): organizer is OrganizerUserDoc =>
+              organizer.role === "organizer",
+          )
+          .map(toPublicFollowedOrganizerResponse),
+      });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
 
 function deriveDisplayStatus(
   event: StoredEventDoc,

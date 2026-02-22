@@ -13,8 +13,9 @@ const roleMenus: Record<AuthUser["role"], NavItem[]> = {
   participant: [
     { label: "Dashboard", to: "/participant" },
     { label: "Browse Events", to: "/participant/events" },
+    { label: "Clubs/Organizers", to: "/participant/organizers" },
     { label: "My Events", to: "/participant/my-events" },
-    { label: "Profile", to: "/participant" },
+    { label: "Profile", to: "/participant/profile" },
   ],
   organizer: [
     { label: "Dashboard", to: "/organizer" },
