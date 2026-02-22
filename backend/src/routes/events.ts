@@ -16,12 +16,13 @@ const persistedEventStatuses = [
   "COMPLETED",
 ] as const;
 
-const publicQueryStatuses = ["PUBLISHED", "CLOSED", "COMPLETED", "ONGOING"] as const;
-const publicPersistedStatuses: PersistedEventStatus[] = [
+const publicQueryStatuses = [
   "PUBLISHED",
   "CLOSED",
   "COMPLETED",
-];
+  "ONGOING",
+] as const;
+const publicPersistedStatuses = ["PUBLISHED", "CLOSED", "COMPLETED"] as const;
 
 type EventType = (typeof eventTypes)[number];
 type PersistedEventStatus = (typeof persistedEventStatuses)[number];
@@ -259,9 +260,12 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildPublicEventsFilter(query: z.infer<typeof publicEventsQuerySchema>) {
+function buildPublicEventsFilter(
+  query: z.infer<typeof publicEventsQuerySchema>,
+) {
   const filter: Record<string, unknown> = {};
 
+  // for ongoing events, just filter by published status; actual ongoing filter happens later in the caller's logic
   if (query.status === "ONGOING") {
     filter.status = "PUBLISHED";
   } else if (query.status) {
@@ -365,6 +369,7 @@ function toPublicEventResponse(event: StoredEventDoc) {
   };
 }
 
+// organizer creates a new event draft with validated form/merch config
 eventsRouter.post(
   "/organizer",
   requireAuth,
@@ -442,6 +447,7 @@ eventsRouter.post(
   },
 );
 
+// organizer lists own events, newest first
 eventsRouter.get(
   "/organizer",
   requireAuth,
@@ -476,6 +482,7 @@ eventsRouter.get(
   },
 );
 
+// organizer gets one own event by id for edit/view
 eventsRouter.get(
   "/organizer/:eventId",
   requireAuth,
@@ -516,6 +523,7 @@ eventsRouter.get(
   },
 );
 
+// organizer updates selected fields on own event, while preserving date/type rules
 eventsRouter.patch(
   "/organizer/:eventId",
   requireAuth,
@@ -626,7 +634,8 @@ eventsRouter.patch(
       }
 
       const updatedAt = new Date();
-      const updatePayload: Partial<StoredEventDoc> = { updatedAt };
+      const updatePayload: Partial<StoredEventDoc> = { updatedAt }; // Partial means all fields from StoredEventDoc become optional; so we put only timestamp for now and fill other fields one by one
+      // later when updatePayload is passed to $set, mongodb only changes the fields present in updatePayload (not all fields)
 
       if (parsed.data.name !== undefined) updatePayload.name = parsed.data.name;
       if (parsed.data.description !== undefined) {
@@ -701,9 +710,9 @@ eventsRouter.patch(
       );
 
       const updatedEvent = {
-        ...existing,
-        ...updatePayload,
-      } as StoredEventDoc;
+        ...existing, // copy old event fields
+        ...updatePayload, // overwrites changes fields with new values
+      } as StoredEventDoc; // final shape is same as StoredEventDoc
 
       return res.json({ event: toEventResponse(updatedEvent) });
     } catch (err) {
@@ -712,6 +721,7 @@ eventsRouter.patch(
   },
 );
 
+// organizer changes lifecycle status for one own event
 eventsRouter.patch(
   "/organizer/:eventId/status",
   requireAuth,
@@ -783,6 +793,7 @@ eventsRouter.patch(
   },
 );
 
+// organizer deletes one own event by id
 eventsRouter.delete(
   "/organizer/:eventId",
   requireAuth,
@@ -823,6 +834,7 @@ eventsRouter.delete(
   },
 );
 
+// public event listing with filters (search, type, eligibility, status, date range)
 eventsRouter.get("/", async (req, res, next) => {
   try {
     const parsed = publicEventsQuerySchema.safeParse({
@@ -861,29 +873,36 @@ eventsRouter.get("/", async (req, res, next) => {
   }
 });
 
+// top 5 public trending events by non-cancelled registrations in last 24h
 eventsRouter.get("/trending", async (_req, res, next) => {
   try {
     const db = getDb();
-    const registrations = db.collection<RegistrationDoc>(collections.registrations);
+    const registrations = db.collection<RegistrationDoc>(
+      collections.registrations,
+    );
     const events = db.collection<StoredEventDoc>(collections.events);
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const topRegistrations = await registrations
       .aggregate<{ _id: ObjectId; registrations24h: number }>([
+        // typescript hinting the output doc shape
+
+        // filter "good" registrations in last 24h
         {
           $match: {
             createdAt: { $gte: since },
             status: { $nin: ["cancelled", "rejected"] },
           },
         },
+        // find count for each eventId
         {
           $group: {
             _id: "$eventId",
             registrations24h: { $sum: 1 },
           },
         },
+        // sort by registrations desc; cap to top 5 after public-status filtering
         { $sort: { registrations24h: -1 } },
-        { $limit: 5 },
       ])
       .toArray();
 
@@ -913,7 +932,8 @@ eventsRouter.get("/trending", async (_req, res, next) => {
           registrations24h: row.registrations24h,
         };
       })
-      .filter((event): event is NonNullable<typeof event> => event !== null);
+      .filter((event): event is NonNullable<typeof event> => event !== null)
+      .slice(0, 5);
 
     return res.json({ events: ordered });
   } catch (err) {
@@ -921,6 +941,7 @@ eventsRouter.get("/trending", async (_req, res, next) => {
   }
 });
 
+// public event details by id (only public statuses)
 eventsRouter.get("/:eventId", async (req, res, next) => {
   try {
     const eventId = parseObjectId(req.params.eventId);

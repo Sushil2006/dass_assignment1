@@ -103,6 +103,7 @@ function toPublicOrganizerEvent(event: OrganizerPublicEventDoc) {
   };
 }
 
+// public list of active organizers for browse/discovery
 organizersRouter.get("/", async (_req, res, next) => {
   try {
     const db = getDb();
@@ -120,6 +121,7 @@ organizersRouter.get("/", async (_req, res, next) => {
   }
 });
 
+// public organizer detail with visible events split into upcoming/past
 organizersRouter.get("/:organizerId", async (req, res, next) => {
   try {
     const rawOrganizerId = req.params.organizerId;
@@ -179,6 +181,7 @@ organizersRouter.get("/:organizerId", async (req, res, next) => {
   }
 });
 
+// organizer reads own editable profile
 organizersRouter.get(
   "/me",
   requireAuth,
@@ -211,6 +214,7 @@ organizersRouter.get(
   },
 );
 
+// organizer updates own profile fields (supports clearing optional fields)
 organizersRouter.patch(
   "/me",
   requireAuth,

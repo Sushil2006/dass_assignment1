@@ -64,10 +64,12 @@ export async function requireAuth(
   }
 }
 
-// checks if the user's role is in the list of allowed roles
-// is used for route protection
+// function that returns a function
+// middleware factory --> returns a middleware function used to check if user's role is in the set of allowed roles
 export function requireRole(...roles: UserRole[]) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  // 1) This outer function runs once when you set up the route.
+  // 2) It returns the actual middleware that Express will run per request.
+  return function middleware(req: Request, res: Response, next: NextFunction) {
     const user = req.user;
 
     if (!user) {
