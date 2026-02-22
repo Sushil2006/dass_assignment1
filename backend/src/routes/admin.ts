@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Router } from "express";
-import { ObjectId } from "mongodb";
+import { type Collection, ObjectId } from "mongodb";
 import { z } from "zod";
 import { getDb } from "../db/client";
 import { collections } from "../db/collections";
@@ -12,7 +12,6 @@ export const adminRouter = Router();
 // keep input minimal for organizer provisioning
 const createOrganizerSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  email: z.email(),
 });
 
 function toOrganizerResponse(user: UserDoc) {
@@ -28,6 +27,31 @@ function toOrganizerResponse(user: UserDoc) {
 
 function generateOrganizerPassword(): string {
   return `Org#${randomBytes(9).toString("base64url")}`;
+}
+
+function slugifyName(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 30);
+}
+
+async function generateOrganizerEmail(params: {
+  users: Collection<UserDoc>;
+  organizerName: string;
+}): Promise<string> {
+  const base = slugifyName(params.organizerName) || "organizer";
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const suffix = randomBytes(2).toString("hex");
+    const email = `${base}-${suffix}@felicity.local`;
+    const existing = await params.users.findOne({ email });
+    if (!existing) return email;
+  }
+
+  throw new Error("Failed to generate organizer email");
 }
 
 function parseOrganizerId(rawId: string): ObjectId | null {
@@ -49,7 +73,10 @@ adminRouter.post("/organizers", async (req, res, next) => {
 
     // generate one-time organizer credentials
     const name = parsed.data.name;
-    const email = parsed.data.email.toLowerCase().trim();
+    const email = await generateOrganizerEmail({
+      users,
+      organizerName: name,
+    });
     const plainPassword = generateOrganizerPassword();
     const passwordHash = await hashPassword(plainPassword);
     const createdAt = new Date();

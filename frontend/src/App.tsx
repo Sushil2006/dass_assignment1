@@ -5,6 +5,7 @@ import ParticipantDashboard from "./pages/ParticipantDashboard";
 import OrganizerDashboard from "./pages/OrganizerDashboard";
 import CreateEventWizard from "./pages/organizer/CreateEventWizard";
 import OrganizerEventDetail from "./pages/organizer/EventDetail";
+import OngoingEvents from "./pages/organizer/OngoingEvents";
 import AdminHome from "./pages/admin/AdminHome";
 import ManageOrganizers from "./pages/admin/ManageOrganizers";
 import AppNav from "./components/AppNav";
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="/organizer" element={<OrganizerDashboard />} />
           <Route path="/organizer/events/new" element={<CreateEventWizard />} />
           <Route path="/organizer/events/:eventId" element={<OrganizerEventDetail />} />
+          <Route path="/organizer/ongoing" element={<OngoingEvents />} />
         </Route>
 
         <Route element={<ProtectedRoute roles={["admin"]} />}>

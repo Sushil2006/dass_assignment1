@@ -21,6 +21,8 @@ type OrganizerAnalyticsSummary = {
   rejectedCount: number;
   registrations24h: number;
   estimatedRevenue: number;
+  attendanceMarked: number;
+  attendanceRate: number;
 };
 
 type OrganizerTopEvent = {
@@ -34,6 +36,8 @@ type OrganizerTopEvent = {
   activeParticipations: number;
   registrations24h: number;
   estimatedRevenue: number;
+  attendanceMarked: number;
+  attendanceRate: number;
 };
 
 type AnalyticsResponse = {
@@ -79,6 +83,8 @@ function emptySummary(): OrganizerAnalyticsSummary {
     rejectedCount: 0,
     registrations24h: 0,
     estimatedRevenue: 0,
+    attendanceMarked: 0,
+    attendanceRate: 0,
   };
 }
 
@@ -244,6 +250,22 @@ export default function OrganizerDashboard() {
                     </Card.Body>
                   </Card>
                 </Col>
+                <Col md={6}>
+                  <Card className="border h-100">
+                    <Card.Body>
+                      <div className="text-muted small">Attendance marked</div>
+                      <div className="h5 mb-0">{summary.attendanceMarked}</div>
+                    </Card.Body>
+                  </Card>
+                </Col>
+                <Col md={6}>
+                  <Card className="border h-100">
+                    <Card.Body>
+                      <div className="text-muted small">Attendance rate</div>
+                      <div className="h5 mb-0">{summary.attendanceRate}%</div>
+                    </Card.Body>
+                  </Card>
+                </Col>
               </Row>
 
               <Card className="border">
@@ -260,6 +282,7 @@ export default function OrganizerDashboard() {
                           <th>Active/Total</th>
                           <th>Regs (24h)</th>
                           <th>Revenue</th>
+                          <th>Attendance</th>
                           <th>Schedule</th>
                         </tr>
                       </thead>
@@ -276,6 +299,9 @@ export default function OrganizerDashboard() {
                             </td>
                             <td>{event.registrations24h}</td>
                             <td>{formatCurrency(event.estimatedRevenue)}</td>
+                            <td>
+                              {event.attendanceMarked} ({event.attendanceRate}%)
+                            </td>
                             <td className="small text-muted">
                               {formatDate(event.startDate)} - {formatDate(event.endDate)}
                             </td>

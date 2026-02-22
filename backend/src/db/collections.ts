@@ -4,6 +4,7 @@ export const collections = {
   registrations: "registrations",
   tickets: "tickets",
   payments: "payments",
+  attendances: "attendances",
   announcements: "announcements",
 } as const;
 

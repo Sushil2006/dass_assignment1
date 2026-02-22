@@ -1,0 +1,47 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - generic [ref=e4]:
+      - link "DASS" [ref=e5] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - link "Dashboard" [ref=e8] [cursor=pointer]:
+            - /url: /participant
+          - link "Browse Events" [ref=e9] [cursor=pointer]:
+            - /url: /participant/events
+          - link "Clubs/Organizers" [ref=e10] [cursor=pointer]:
+            - /url: /participant/organizers
+          - link "My Events" [ref=e11] [cursor=pointer]:
+            - /url: /participant/my-events
+          - link "Profile" [ref=e12] [cursor=pointer]:
+            - /url: /participant/profile
+        - button "Logout" [ref=e14] [cursor=pointer]
+  - generic [ref=e15]:
+    - generic [ref=e16]:
+      - heading "Participant Dashboard" [level=1] [ref=e17]
+      - paragraph [ref=e18]: Browse events, manage participations, and open tickets.
+    - generic [ref=e19]:
+      - generic [ref=e22]:
+        - generic [ref=e23]: Browse Events
+        - paragraph [ref=e24]: Search events, view trending, and open full event detail.
+        - link "Open Browse" [ref=e25] [cursor=pointer]:
+          - /url: /participant/events
+      - generic [ref=e28]:
+        - generic [ref=e29]: My Events
+        - paragraph [ref=e30]: View upcoming, normal, merchandise, completed, and cancelled/rejected tabs.
+        - link "Open My Events" [ref=e31] [cursor=pointer]:
+          - /url: /participant/my-events
+      - generic [ref=e34]:
+        - generic [ref=e35]: Clubs / Organizers
+        - paragraph [ref=e36]: Follow organizers and browse their upcoming/past events.
+        - link "Open Organizers" [ref=e37] [cursor=pointer]:
+          - /url: /participant/organizers
+      - generic [ref=e40]:
+        - generic [ref=e41]: Profile
+        - paragraph [ref=e42]: Update participant profile, onboarding preferences, and password.
+        - link "Open Profile" [ref=e43] [cursor=pointer]:
+          - /url: /participant/profile
+```

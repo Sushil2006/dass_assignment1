@@ -19,6 +19,7 @@ export type EventCardData = {
   displayStatus?: EventStatus | string;
   startDate: string;
   endDate: string;
+  organizerName?: string | null;
   eligibility?: string;
   regFee?: number;
   canRegister?: boolean;
@@ -78,6 +79,11 @@ export default function EventCard({ event, onOpenDetail, actions }: EventCardPro
           <div>
             <strong>Ends:</strong> {formatDate(event.endDate)}
           </div>
+          {event.organizerName ? (
+            <div>
+              <strong>Organizer:</strong> {event.organizerName}
+            </div>
+          ) : null}
           <div>
             <strong>Eligibility:</strong> {event.eligibility ?? "all"}
           </div>

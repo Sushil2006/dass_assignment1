@@ -19,8 +19,8 @@ const roleMenus: Record<AuthUser["role"], NavItem[]> = {
   ],
   organizer: [
     { label: "Dashboard", to: "/organizer" },
-    { label: "Create Event", to: "/organizer" },
-    { label: "Ongoing Events", to: "/organizer" },
+    { label: "Create Event", to: "/organizer/events/new" },
+    { label: "Ongoing Events", to: "/organizer/ongoing" },
     { label: "Profile", to: "/organizer" },
   ],
   admin: [

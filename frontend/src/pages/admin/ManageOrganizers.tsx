@@ -56,7 +56,6 @@ export default function ManageOrganizers() {
   const [actioningId, setActioningId] = useState<string | null>(null);
 
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -94,7 +93,7 @@ export default function ManageOrganizers() {
     try {
       const res = await apiFetch("/api/admin/organizers", {
         method: "POST",
-        body: JSON.stringify({ name: name.trim(), email: email.trim() }),
+        body: JSON.stringify({ name: name.trim() }),
       });
 
       if (!res.ok) throw new Error(await readErrorMessage(res));
@@ -104,7 +103,6 @@ export default function ManageOrganizers() {
       setLastCredentials(data.credentials);
       setSuccess("Organizer created successfully");
       setName("");
-      setEmail("");
 
       await loadOrganizers();
     } catch (err) {

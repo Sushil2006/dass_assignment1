@@ -619,7 +619,10 @@ function canRegisterNow(event: StoredEventDoc, now: Date): boolean {
   return true;
 }
 
-function toParticipantEventResponse(event: StoredEventDoc) {
+function toParticipantEventResponse(
+  event: StoredEventDoc,
+  organizerName?: string,
+) {
   return {
     id: event._id.toString(),
     name: event.name,
@@ -633,6 +636,7 @@ function toParticipantEventResponse(event: StoredEventDoc) {
     startDate: event.startDate,
     endDate: event.endDate,
     organizerId: event.organizerId.toString(),
+    organizerName: organizerName ?? null,
     status: event.status,
     displayStatus: deriveDisplayStatus(event, new Date()),
     canRegister: canRegisterNow(event, new Date()),
@@ -644,6 +648,7 @@ function toParticipantEventResponse(event: StoredEventDoc) {
 function toParticipationItemResponse(
   participation: StoredParticipationDoc,
   event: StoredEventDoc,
+  organizerName?: string,
 ) {
   return {
     id: participation._id.toString(),
@@ -654,7 +659,7 @@ function toParticipationItemResponse(
     ticketId: participation.ticketId,
     createdAt: participation.createdAt,
     updatedAt: participation.updatedAt,
-    event: toParticipantEventResponse(event),
+    event: toParticipantEventResponse(event, organizerName),
     normalResponses: participation.normalResponses,
     merchPurchase: participation.merchPurchase,
   };
@@ -682,6 +687,7 @@ participantsRouter.get(
         collections.registrations,
       );
       const events = db.collection<StoredEventDoc>(collections.events);
+      const users = db.collection<OrganizerUserDoc>(collections.users);
 
       const foundParticipations = await participations
         .find({ userId: participantId })
@@ -703,12 +709,31 @@ participantsRouter.get(
       const eventsById = new Map(
         foundEvents.map((event) => [event._id.toString(), event]),
       );
+      const organizerIds = [
+        ...new Set(foundEvents.map((entry) => entry.organizerId.toString())),
+      ].map((id) => new ObjectId(id));
+      const organizers =
+        organizerIds.length > 0
+          ? await users
+              .find({
+                _id: { $in: organizerIds },
+                role: "organizer",
+              })
+              .toArray()
+          : [];
+      const organizerNameById = new Map(
+        organizers.map((organizer) => [organizer._id.toString(), organizer.name]),
+      );
 
       const items = foundParticipations
         .map((entry) => {
           const event = eventsById.get(entry.eventId.toString());
           if (!event) return null;
-          return toParticipationItemResponse(entry, event);
+          return toParticipationItemResponse(
+            entry,
+            event,
+            organizerNameById.get(event.organizerId.toString()),
+          );
         })
         .filter(
           (
@@ -795,6 +820,7 @@ participantsRouter.get(
       const participations = db.collection<StoredParticipationDoc>(
         collections.registrations,
       );
+      const users = db.collection<OrganizerUserDoc>(collections.users);
 
       const event = await events.findOne({ _id: eventId });
       if (!event) {
@@ -810,10 +836,16 @@ participantsRouter.get(
         return res.status(404).json({ error: { message: "Event not found" } });
       }
 
+      const organizer = await users.findOne({
+        _id: event.organizerId,
+        role: "organizer",
+      });
+      const organizerName = organizer?.name;
+
       return res.json({
-        event: toParticipantEventResponse(event),
+        event: toParticipantEventResponse(event, organizerName),
         myParticipation: latestParticipation
-          ? toParticipationItemResponse(latestParticipation, event)
+          ? toParticipationItemResponse(latestParticipation, event, organizerName)
           : null,
       });
     } catch (err) {

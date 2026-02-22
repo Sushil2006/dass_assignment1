@@ -147,6 +147,8 @@ type EventAnalyticsSummary = {
   merchCount: number;
   registrations24h: number;
   estimatedRevenue: number;
+  attendanceMarked: number;
+  attendanceRate: number;
 };
 
 type OrganizerUserDoc = {
@@ -162,6 +164,24 @@ type ParticipantPreferenceDoc = {
   role: "participant";
   interests?: string[];
   followedOrganizerIds?: ObjectId[];
+};
+
+type StoredPaymentDoc = {
+  _id: ObjectId;
+  registrationId: ObjectId;
+  method: "upi" | "bank_transfer" | "cash" | "card" | "other";
+  amount: number;
+  proofUrl?: string;
+  status: "pending" | "approved" | "rejected";
+  createdAt: Date;
+};
+
+type StoredAttendanceDoc = {
+  _id: ObjectId;
+  eventId: ObjectId;
+  participationId: ObjectId;
+  userId: ObjectId;
+  markedAt: Date;
 };
 
 type ParticipantViewerContext = {
@@ -352,6 +372,66 @@ function readQueryBooleanValue(value: unknown): boolean | undefined {
   if (normalized === "true" || normalized === "1") return true;
   if (normalized === "false" || normalized === "0") return false;
   return undefined;
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const dp = Array.from({ length: rows }, () => new Array<number>(cols).fill(0));
+
+  for (let i = 0; i < rows; i += 1) dp[i]![0] = i;
+  for (let j = 0; j < cols; j += 1) dp[0]![j] = j;
+
+  for (let i = 1; i < rows; i += 1) {
+    for (let j = 1; j < cols; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i]![j] = Math.min(
+        dp[i - 1]![j]! + 1,
+        dp[i]![j - 1]! + 1,
+        dp[i - 1]![j - 1]! + cost,
+      );
+    }
+  }
+
+  return dp[rows - 1]![cols - 1]!;
+}
+
+function tokenMatchesTextFuzzy(token: string, text: string): boolean {
+  if (!token) return true;
+  if (!text) return false;
+  if (text.includes(token)) return true;
+
+  const words = text.split(" ");
+  for (const word of words) {
+    if (!word) continue;
+    if (word.includes(token)) return true;
+
+    const distance = levenshteinDistance(token, word);
+    if (distance <= 1) return true;
+  }
+
+  return false;
+}
+
+function matchesSearchQueryFuzzy(query: string, haystacks: string[]): boolean {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return true;
+
+  const tokens = normalizedQuery.split(" ").filter((token) => token.length > 0);
+  if (tokens.length === 0) return true;
+
+  const normalizedHaystacks = haystacks.map(normalizeSearchText);
+  return tokens.every((token) =>
+    normalizedHaystacks.some((text) => tokenMatchesTextFuzzy(token, text)),
+  );
 }
 
 function escapeRegex(value: string): string {
@@ -561,6 +641,7 @@ function buildEventAnalyticsSummary(
   event: StoredEventDoc,
   participations: StoredParticipationDoc[],
   now: Date,
+  attendanceMarked = 0,
 ): EventAnalyticsSummary {
   const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const summary: EventAnalyticsSummary = {
@@ -574,6 +655,8 @@ function buildEventAnalyticsSummary(
     merchCount: 0,
     registrations24h: 0,
     estimatedRevenue: 0,
+    attendanceMarked,
+    attendanceRate: 0,
   };
 
   for (const participation of participations) {
@@ -606,6 +689,12 @@ function buildEventAnalyticsSummary(
       }
     }
   }
+
+  const denominator = summary.activeParticipations;
+  summary.attendanceRate =
+    denominator > 0
+      ? Number(((summary.attendanceMarked / denominator) * 100).toFixed(2))
+      : 0;
 
   return summary;
 }
@@ -712,7 +801,7 @@ eventsRouter.post(
           parsed.data.type === "NORMAL"
             ? {
                 fields: parsed.data.normalForm?.fields ?? [],
-                isFormLocked: parsed.data.normalForm?.isFormLocked ?? false,
+                isFormLocked: true,
               }
             : undefined,
         merchConfig:
@@ -796,6 +885,9 @@ eventsRouter.get(
       const participations = db.collection<StoredParticipationDoc>(
         collections.registrations,
       );
+      const attendances = db.collection<StoredAttendanceDoc>(
+        collections.attendances,
+      );
 
       const organizerEvents = await events
         .find({ organizerId })
@@ -817,13 +909,48 @@ eventsRouter.get(
             rejectedCount: 0,
             registrations24h: 0,
             estimatedRevenue: 0,
+            attendanceMarked: 0,
+            attendanceRate: 0,
           },
           topEvents: [],
         });
       }
 
-      const eventIds = organizerEvents.map((event) => event._id);
+      const completedEvents = organizerEvents.filter(
+        (event) => event.status === "COMPLETED",
+      );
+      if (completedEvents.length === 0) {
+        return res.json({
+          summary: {
+            totalEvents: organizerEvents.length,
+            draftEvents: organizerEvents.filter((event) => event.status === "DRAFT")
+              .length,
+            publishedEvents: organizerEvents.filter(
+              (event) => event.status === "PUBLISHED",
+            ).length,
+            closedEvents: organizerEvents.filter((event) => event.status === "CLOSED")
+              .length,
+            completedEvents: 0,
+            totalParticipations: 0,
+            activeParticipations: 0,
+            confirmedCount: 0,
+            pendingCount: 0,
+            cancelledCount: 0,
+            rejectedCount: 0,
+            registrations24h: 0,
+            estimatedRevenue: 0,
+            attendanceMarked: 0,
+            attendanceRate: 0,
+          },
+          topEvents: [],
+        });
+      }
+
+      const eventIds = completedEvents.map((event) => event._id);
       const allParticipations = await participations
+        .find({ eventId: { $in: eventIds } })
+        .toArray();
+      const allAttendances = await attendances
         .find({ eventId: { $in: eventIds } })
         .toArray();
 
@@ -838,11 +965,23 @@ eventsRouter.get(
         }
       }
 
+      const attendanceByEventId = new Map<string, number>();
+      for (const attendance of allAttendances) {
+        const key = attendance.eventId.toString();
+        attendanceByEventId.set(key, (attendanceByEventId.get(key) ?? 0) + 1);
+      }
+
       const now = new Date();
-      const eventSummaries = organizerEvents.map((event) => {
+      const eventSummaries = completedEvents.map((event) => {
         const eventParticipations =
           participationsByEventId.get(event._id.toString()) ?? [];
-        const analytics = buildEventAnalyticsSummary(event, eventParticipations, now);
+        const attendanceMarked = attendanceByEventId.get(event._id.toString()) ?? 0;
+        const analytics = buildEventAnalyticsSummary(
+          event,
+          eventParticipations,
+          now,
+          attendanceMarked,
+        );
         return {
           event,
           analytics,
@@ -893,7 +1032,22 @@ eventsRouter.get(
           (sum, item) => sum + item.analytics.estimatedRevenue,
           0,
         ),
+        attendanceMarked: eventSummaries.reduce(
+          (sum, item) => sum + item.analytics.attendanceMarked,
+          0,
+        ),
+        attendanceRate: 0,
       };
+
+      summary.attendanceRate =
+        summary.activeParticipations > 0
+          ? Number(
+              (
+                (summary.attendanceMarked / summary.activeParticipations) *
+                100
+              ).toFixed(2),
+            )
+          : 0;
 
       const topEvents = eventSummaries
         .sort((a, b) => {
@@ -919,6 +1073,8 @@ eventsRouter.get(
           activeParticipations: item.analytics.activeParticipations,
           registrations24h: item.analytics.registrations24h,
           estimatedRevenue: item.analytics.estimatedRevenue,
+          attendanceMarked: item.analytics.attendanceMarked,
+          attendanceRate: item.analytics.attendanceRate,
         }));
 
       return res.json({ summary, topEvents });
@@ -959,16 +1115,52 @@ eventsRouter.get(
         return res.status(404).json({ error: { message: "Event not found" } });
       }
 
+      const db = getDb();
+      const payments = db.collection<StoredPaymentDoc>(collections.payments);
+      const attendances = db.collection<StoredAttendanceDoc>(
+        collections.attendances,
+      );
+      const participationIds = loaded.participations.map((entry) => entry._id);
+
+      const foundPayments =
+        participationIds.length > 0
+          ? await payments
+              .find({
+                registrationId: { $in: participationIds },
+              })
+              .toArray()
+          : [];
+      const paymentByParticipationId = new Map(
+        foundPayments.map((entry) => [entry.registrationId.toString(), entry]),
+      );
+
+      const foundAttendances =
+        participationIds.length > 0
+          ? await attendances
+              .find({
+                participationId: { $in: participationIds },
+              })
+              .toArray()
+          : [];
+      const attendanceByParticipationId = new Map(
+        foundAttendances.map((entry) => [entry.participationId.toString(), entry]),
+      );
+
       const now = new Date();
       const analytics = buildEventAnalyticsSummary(
         loaded.event,
         loaded.participations,
         now,
+        foundAttendances.length,
       );
 
       const participants = loaded.participations.map((participation) => {
         const participant = loaded.participantsById.get(
           participation.userId.toString(),
+        );
+        const payment = paymentByParticipationId.get(participation._id.toString());
+        const attendance = attendanceByParticipationId.get(
+          participation._id.toString(),
         );
 
         return {
@@ -1009,6 +1201,20 @@ eventsRouter.get(
                 }
               : undefined,
           })),
+          teamName: null,
+          payment: payment
+            ? {
+                status: payment.status,
+                amount: payment.amount,
+                method: payment.method,
+                proofUrl: payment.proofUrl ?? null,
+                createdAt: payment.createdAt,
+              }
+            : null,
+          attendance: {
+            isPresent: Boolean(attendance),
+            markedAt: attendance?.markedAt ?? null,
+          },
           merchPurchase: participation.merchPurchase ?? null,
         };
       });
@@ -1055,9 +1261,40 @@ eventsRouter.get(
         return res.status(404).json({ error: { message: "Event not found" } });
       }
 
+      const db = getDb();
+      const payments = db.collection<StoredPaymentDoc>(collections.payments);
+      const attendances = db.collection<StoredAttendanceDoc>(
+        collections.attendances,
+      );
+      const participationIds = loaded.participations.map((entry) => entry._id);
+
+      const foundPayments =
+        participationIds.length > 0
+          ? await payments
+              .find({ registrationId: { $in: participationIds } })
+              .toArray()
+          : [];
+      const paymentByParticipationId = new Map(
+        foundPayments.map((entry) => [entry.registrationId.toString(), entry]),
+      );
+
+      const foundAttendances =
+        participationIds.length > 0
+          ? await attendances
+              .find({ participationId: { $in: participationIds } })
+              .toArray()
+          : [];
+      const attendanceByParticipationId = new Map(
+        foundAttendances.map((entry) => [entry.participationId.toString(), entry]),
+      );
+
       const rows = loaded.participations.map((participation) => {
         const participant = loaded.participantsById.get(
           participation.userId.toString(),
+        );
+        const payment = paymentByParticipationId.get(participation._id.toString());
+        const attendance = attendanceByParticipationId.get(
+          participation._id.toString(),
         );
 
         return {
@@ -1077,6 +1314,12 @@ eventsRouter.get(
           merchQuantity: participation.merchPurchase?.quantity ?? "",
           merchUnitPrice: participation.merchPurchase?.unitPrice ?? "",
           merchTotalAmount: participation.merchPurchase?.totalAmount ?? "",
+          teamName: "",
+          paymentStatus: payment?.status ?? "",
+          paymentAmount: payment?.amount ?? "",
+          paymentMethod: payment?.method ?? "",
+          attendanceMarked: attendance ? "yes" : "no",
+          attendanceMarkedAt: attendance?.markedAt ?? "",
           normalResponses: (participation.normalResponses ?? [])
             .map((response) => `${response.label}: ${formatNormalResponseValue(response)}`)
             .join(" || "),
@@ -1103,6 +1346,12 @@ eventsRouter.get(
         { header: "merchQuantity", value: (row) => row.merchQuantity },
         { header: "merchUnitPrice", value: (row) => row.merchUnitPrice },
         { header: "merchTotalAmount", value: (row) => row.merchTotalAmount },
+        { header: "teamName", value: (row) => row.teamName },
+        { header: "paymentStatus", value: (row) => row.paymentStatus },
+        { header: "paymentAmount", value: (row) => row.paymentAmount },
+        { header: "paymentMethod", value: (row) => row.paymentMethod },
+        { header: "attendanceMarked", value: (row) => row.attendanceMarked },
+        { header: "attendanceMarkedAt", value: (row) => row.attendanceMarkedAt },
         { header: "normalResponses", value: (row) => row.normalResponses },
       ]);
 
@@ -1226,6 +1475,18 @@ eventsRouter.patch(
         });
       }
 
+      if (
+        existing.status === "PUBLISHED" &&
+        deriveDisplayStatus(existing, new Date()) === "ONGOING"
+      ) {
+        return res.status(400).json({
+          error: {
+            message:
+              "Ongoing events cannot be edited. Use status update only.",
+          },
+        });
+      }
+
       if (existing.status === "PUBLISHED") {
         const allowedPublishedFields = new Set<keyof z.infer<typeof updateEventSchema>>([
           "description",
@@ -1264,23 +1525,20 @@ eventsRouter.patch(
       }
 
       if (parsed.data.normalForm !== undefined && existing.type === "NORMAL") {
-        const normalFormConfig = existing.normalForm;
-        if (normalFormConfig?.isFormLocked) {
-          const registrations = db.collection<StoredParticipationDoc>(
-            collections.registrations,
-          );
-          const registrationCount = await registrations.countDocuments({
-            eventId,
-          });
+        const registrations = db.collection<StoredParticipationDoc>(
+          collections.registrations,
+        );
+        const registrationCount = await registrations.countDocuments({
+          eventId,
+        });
 
-          if (registrationCount > 0) {
-            return res.status(400).json({
-              error: {
-                message:
-                  "Form is locked after first registration and cannot be edited",
-              },
-            });
-          }
+        if (registrationCount > 0) {
+          return res.status(400).json({
+            error: {
+              message:
+                "Form is locked after first registration and cannot be edited",
+            },
+          });
         }
       }
 
@@ -1375,7 +1633,7 @@ eventsRouter.patch(
           nextType === "NORMAL"
             ? {
                 fields: parsed.data.normalForm.fields,
-                isFormLocked: parsed.data.normalForm.isFormLocked,
+                isFormLocked: true,
               }
             : undefined;
       }
@@ -1397,7 +1655,7 @@ eventsRouter.patch(
           updatePayload.merchConfig = undefined;
           updatePayload.normalForm = {
             fields: nextNormalForm?.fields ?? [],
-            isFormLocked: nextNormalForm?.isFormLocked ?? false,
+            isFormLocked: true,
           };
         }
 
@@ -1659,20 +1917,16 @@ eventsRouter.get("/", async (req, res, next) => {
           )
         : foundEvents;
 
-    const qFiltered = parsed.data.q
-      ? (() => {
-          const qRegex = new RegExp(escapeRegex(parsed.data.q), "i");
-          return statusFiltered.filter((event) => {
-            const organizerName =
-              organizerNameById.get(event.organizerId.toString()) ?? "";
-
-            if (qRegex.test(event.name)) return true;
-            if (qRegex.test(event.description)) return true;
-            if (event.tags.some((tag) => qRegex.test(tag))) return true;
-            if (qRegex.test(organizerName)) return true;
-            return false;
-          });
-        })()
+    const queryText = parsed.data.q;
+    const qFiltered = queryText
+      ? statusFiltered.filter((event) =>
+          matchesSearchQueryFuzzy(queryText, [
+            event.name,
+            event.description,
+            ...(event.tags ?? []),
+            organizerNameById.get(event.organizerId.toString()) ?? "",
+          ]),
+        )
       : statusFiltered;
 
     const now = new Date();

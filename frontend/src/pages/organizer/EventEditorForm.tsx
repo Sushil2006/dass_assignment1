@@ -181,8 +181,8 @@ export default function EventEditorForm({
   const [normalFields, setNormalFields] = useState<NormalFieldDraft[]>(
     buildInitialNormalFields(initialValues),
   );
-  const [isFormLocked, setIsFormLocked] = useState(
-    initialValues?.normalForm?.isFormLocked ?? false,
+  const [isFormLocked] = useState(
+    initialValues?.normalForm?.isFormLocked ?? true,
   );
 
   const [merchVariants, setMerchVariants] = useState<MerchVariantDraft[]>(
@@ -535,9 +535,9 @@ export default function EventEditorForm({
                   className="mb-3"
                   type="switch"
                   id="normal-form-locked"
-                  label="Lock form after first registration"
+                  label="form auto-locks after first registration"
                   checked={isFormLocked}
-                  onChange={(currentEvent) => setIsFormLocked(currentEvent.target.checked)}
+                  disabled
                 />
 
                 {normalFields.map((field, index) => {

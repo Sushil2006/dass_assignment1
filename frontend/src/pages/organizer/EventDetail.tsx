@@ -47,6 +47,8 @@ type EventAnalytics = {
   merchCount: number;
   registrations24h: number;
   estimatedRevenue: number;
+  attendanceMarked: number;
+  attendanceRate: number;
 };
 
 type ParticipantFieldResponse = {
@@ -80,6 +82,18 @@ type EventParticipant = {
     contactNumber: string | null;
   };
   normalResponses: ParticipantFieldResponse[];
+  teamName: string | null;
+  payment: {
+    status: "pending" | "approved" | "rejected";
+    amount: number;
+    method: string;
+    proofUrl: string | null;
+    createdAt: string;
+  } | null;
+  attendance: {
+    isPresent: boolean;
+    markedAt: string | null;
+  };
   merchPurchase: {
     sku: string;
     label: string;
@@ -448,6 +462,26 @@ export default function OrganizerEventDetail() {
                         </Card>
                       ) : null}
 
+                      <Card className="bg-light border mb-2">
+                        <Card.Body className="py-2 small">
+                          <div>
+                            <strong>Team:</strong> {entry.teamName ?? "-"}
+                          </div>
+                          <div>
+                            <strong>Payment:</strong>{" "}
+                            {entry.payment
+                              ? `${entry.payment.status} | ${entry.payment.method} | ${formatCurrency(entry.payment.amount)}`
+                              : "not available"}
+                          </div>
+                          <div>
+                            <strong>Attendance:</strong>{" "}
+                            {entry.attendance.isPresent
+                              ? `present (${entry.attendance.markedAt ? formatDate(entry.attendance.markedAt) : "-"})`
+                              : "absent"}
+                          </div>
+                        </Card.Body>
+                      </Card>
+
                       {entry.normalResponses.length > 0 ? (
                         <Card className="bg-light border">
                           <Card.Body className="py-2">
@@ -544,6 +578,22 @@ export default function OrganizerEventDetail() {
                     <Card.Body>
                       <div className="text-muted small">Merch participations</div>
                       <div className="h4 mb-0">{analytics.merchCount}</div>
+                    </Card.Body>
+                  </Card>
+                </Col>
+                <Col md={6}>
+                  <Card className="border h-100">
+                    <Card.Body>
+                      <div className="text-muted small">Attendance marked</div>
+                      <div className="h4 mb-0">{analytics.attendanceMarked}</div>
+                    </Card.Body>
+                  </Card>
+                </Col>
+                <Col md={6}>
+                  <Card className="border h-100">
+                    <Card.Body>
+                      <div className="text-muted small">Attendance rate</div>
+                      <div className="h4 mb-0">{analytics.attendanceRate}%</div>
                     </Card.Body>
                   </Card>
                 </Col>
