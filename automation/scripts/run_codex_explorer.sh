@@ -23,8 +23,9 @@ log INFO "Starting Codex exploratory browser run (Playwright MCP)"
 if timeout "${CODEX_TIMEOUT_MINUTES}m" \
   codex exec \
     -C "$ROOT_DIR" \
+    -m "$CODEX_MODEL" \
+    -c "model_reasoning_effort=\"$CODEX_REASONING_EFFORT\"" \
     -s danger-full-access \
-    -a never \
     -o "$OUTPUT_FILE" \
     "$(cat "$PROMPT_FILE")" >"$LOG_FILE" 2>&1; then
   log INFO "Codex exploratory run completed"

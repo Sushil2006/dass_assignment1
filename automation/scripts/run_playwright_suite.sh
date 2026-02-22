@@ -9,6 +9,10 @@ if [[ "$CYCLE_DIR" != /* ]]; then
 fi
 load_env "$ENV_FILE"
 
+if [[ -n "${PW_TEST_TARGETS_OVERRIDE:-}" ]]; then
+  PW_TEST_TARGETS="$PW_TEST_TARGETS_OVERRIDE"
+fi
+
 mkdir -p "$CYCLE_DIR/playwright"
 
 log INFO "Running Playwright suite"
@@ -18,9 +22,47 @@ for project in $PW_PROJECTS; do
 done
 
 test_targets=()
-for target in $PW_TEST_TARGETS; do
-  test_targets+=("$target")
-done
+
+resolve_targets() {
+  local mode="$1"
+
+  if [[ "$mode" == "auto-all" ]]; then
+    while IFS= read -r file; do
+      [[ -z "$file" ]] && continue
+      test_targets+=("$file")
+    done < <(
+      cd "$AUTOMATION_DIR/playwright" &&
+        find tests -type f -name '*.spec.js' | sort
+    )
+    return
+  fi
+
+  if [[ "$mode" == "auto-smoke" ]]; then
+    while IFS= read -r file; do
+      [[ -z "$file" ]] && continue
+      test_targets+=("$file")
+    done < <(
+      cd "$AUTOMATION_DIR/playwright" &&
+        find tests -type f -name '*.smoke.spec.js' | sort
+    )
+
+    if (( ${#test_targets[@]} == 0 )); then
+      test_targets+=("tests/auth-rbac.spec.js" "tests/participant-flows.spec.js")
+    fi
+    return
+  fi
+
+  for target in $mode; do
+    test_targets+=("$target")
+  done
+}
+
+resolve_targets "$PW_TEST_TARGETS"
+
+if (( ${#test_targets[@]} == 0 )); then
+  log ERROR "No Playwright tests selected. Check PW_TEST_TARGETS."
+  exit 1
+fi
 
 (
   cd "$AUTOMATION_DIR/playwright"

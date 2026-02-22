@@ -14,26 +14,27 @@ test('admin creates organizer; organizer logs in and creates draft event', async
   const adminEmail = process.env.TEST_ADMIN_EMAIL || 'admin@iiit.ac.in';
   const adminPassword = process.env.TEST_ADMIN_PASSWORD || 'admin123';
 
-  const organizerEmail = uniqueEmail('organizer');
   const organizerName = `Organizer ${Date.now()}`;
 
   await login(page, adminEmail, adminPassword);
   await expect(page).toHaveURL(/\/admin/);
   await page.goto('/admin');
   await expect(page.locator('body')).toContainText('Admin Home');
-  await page.getByRole('link', { name: /Manage Organizers/i }).first().click();
-  await expect(page.locator('body')).toContainText('Create Organizer');
+  await page.getByRole('link', { name: /Manage (Clubs\/)?Organizers/i }).first().click();
+  await expect(page.locator('body')).toContainText('Manage Organizers');
 
   const createForm = page.locator('form').filter({ hasText: 'Create organizer' }).first();
   await createForm.getByLabel('Name').fill(organizerName);
-  await createForm.getByLabel('Email').fill(organizerEmail);
   await page.getByRole('button', { name: /Create organizer/i }).click();
 
   await expect(page.getByText('Organizer created successfully')).toBeVisible();
 
   const bodyText = await page.locator('body').innerText();
+  const emailMatch = bodyText.match(/Email:\s*([^\s]+)/);
   const match = bodyText.match(/Password:\s*([^\s]+)/);
+  expect(emailMatch, 'Expected generated email in admin UI').toBeTruthy();
   expect(match, 'Expected generated password in admin UI').toBeTruthy();
+  const organizerEmail = emailMatch[1];
   const organizerPassword = match[1];
 
   await logout(page);

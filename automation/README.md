@@ -45,6 +45,9 @@ bash automation/scripts/overnight_loop.sh
 ```
 
 The script will keep cycling until `MAX_CYCLES` or manual stop.
+It continuously updates a live report under:
+
+- `automation/reports/overnight-running-<timestamp>.md`
 
 ## Safe stop
 
@@ -58,10 +61,37 @@ Edit `automation/.env.overnight`:
 - `CYCLE_TIMEOUT_MINUTES`
 - `CODEX_TIMEOUT_MINUTES`
 - `CODEX_FIX_ATTEMPTS`
+- `CODEX_MODEL`
+- `CODEX_REASONING_EFFORT`
 - `RUN_CODEX_EXPLORER`
 - `RUN_CODEX_ON_FAILURE`
 - `PW_WORKERS`
 - `PW_TEST_TARGETS` (default excludes the heavier admin organizer creation flow)
+- `PW_FULL_TEST_TARGETS`
+- `FULL_SWEEP_EVERY_CYCLES`
+
+`PW_TEST_TARGETS` supports:
+- `auto-smoke`: run `*.smoke.spec.js`, fallback to core baseline tests
+- explicit space-separated paths: run only those files
+
+`PW_FULL_TEST_TARGETS` supports:
+- `auto-all`: run all `tests/*.spec.js` files (includes newly added tests automatically)
+- explicit space-separated paths
+
+Naming convention for new tests:
+- `*.smoke.spec.js`: runs every cycle in `auto-smoke` mode
+- `*.spec.js`: runs in periodic full sweeps (`auto-all`)
+
+Recommended stable overnight values:
+
+- `MAX_CYCLES=200`
+- `CYCLE_TIMEOUT_MINUTES=45`
+- `CODEX_TIMEOUT_MINUTES=20`
+- `CODEX_FIX_ATTEMPTS=2`
+- `PW_WORKERS=2`
+- `PW_RETRIES=0`
+- `PW_PROJECTS=chromium-desktop`
+- `FULL_SWEEP_EVERY_CYCLES=10`
 
 ## Notes
 

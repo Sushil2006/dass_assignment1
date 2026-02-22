@@ -176,7 +176,7 @@ export default function ManageOrganizers() {
 
               <Form onSubmit={onCreateOrganizer}>
                 <Row className="g-3">
-                  <Col md={6}>
+                  <Col>
                     <Form.Group controlId="organizer-name">
                       <Form.Label>Name</Form.Label>
                       <Form.Control
@@ -184,19 +184,6 @@ export default function ManageOrganizers() {
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         placeholder="Club/Organizer name"
-                        required
-                      />
-                    </Form.Group>
-                  </Col>
-
-                  <Col md={6}>
-                    <Form.Group controlId="organizer-email">
-                      <Form.Label>Email</Form.Label>
-                      <Form.Control
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="organizer@example.com"
                         required
                       />
                     </Form.Group>

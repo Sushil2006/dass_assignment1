@@ -29,9 +29,16 @@ async function login(page, email, password) {
 }
 
 async function logout(page) {
+  const logoutButton = page.getByRole('button', { name: 'Logout' });
+  if (await logoutButton.count()) {
+    await logoutButton.click();
+    await expect(page).toHaveURL(/\/login/);
+    return;
+  }
+
   const logoutLink = page.getByRole('link', { name: 'Logout' });
   if (await logoutLink.count()) {
-    await logoutLink.click();
+    await logoutLink.first().click();
     await expect(page).toHaveURL(/\/login/);
   }
 }
