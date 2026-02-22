@@ -2,6 +2,7 @@ export const collections = {
   users: "users",
   events: "events",
   registrations: "registrations",
+  tickets: "tickets",
   payments: "payments",
   announcements: "announcements",
 } as const;
