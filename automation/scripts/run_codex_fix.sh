@@ -26,7 +26,7 @@ if timeout "${CODEX_TIMEOUT_MINUTES}m" \
     -C "$ROOT_DIR" \
     -m "$CODEX_MODEL" \
     -c "model_reasoning_effort=\"$CODEX_REASONING_EFFORT\"" \
-    -s danger-full-access \
+    -s workspace-write \
     -o "$OUTPUT_FILE" \
     "$(
       cat "$PROMPT_FILE"

@@ -15,6 +15,7 @@ Rules:
 - Avoid broad refactors.
 - Preserve existing user-visible behavior unless it is clearly wrong.
 - If a test is wrong, fix the test with explicit rationale in your final summary.
+- Never run `sudo`, `su`, `apt`, `apt-get`, `dnf`, `yum`, or any system-level package install command.
 
 Deliverables:
 - Short failure root-cause explanation.

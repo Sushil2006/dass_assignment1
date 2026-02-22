@@ -1,0 +1,5 @@
+I need your direction before I continue: there is an active overnight automation loop currently running and modifying files in this repo (`automation/...` changes are appearing while we work). Per safety rules, I have to pause on unexpected concurrent edits.
+
+Choose one:
+1. I continue QA/bug-fixing while ignoring automation-generated files only.
+2. You stop the overnight loop, then I proceed with a clean working state.
