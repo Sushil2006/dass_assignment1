@@ -1,9 +1,0 @@
-./automation/playwright/test-results/.last-run.json
-./automation/playwright/tests/organizer-boundary.spec.js
-./automation/playwright/tests/organizer-published-edit-limited.spec.js
-./automation/playwright/tests/organizer-published-reg-limit-decrease.spec.js
-./automation/playwright/tests/organizer-status-transition-boundary.spec.js
-./automation/playwright/tests/participant-browse-invalid-date-range.spec.js
-./automation/playwright/tests/participant-cancel-reregister.spec.js
-./automation/playwright/tests/participant-closed-event-registration-block.spec.js
-./frontend/src/pages/participant/BrowseEvents.tsx

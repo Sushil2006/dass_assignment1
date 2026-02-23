@@ -1,3 +1,0 @@
-./automation/playwright/test-results/.last-run.json
-./frontend/src/pages/common/ChangePassword.tsx
-./frontend/src/pages/participant/Profile.tsx

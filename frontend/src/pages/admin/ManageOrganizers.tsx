@@ -21,6 +21,7 @@ type OrganizerRow = {
   email: string;
   role: string;
   isDisabled: boolean;
+  isArchived?: boolean;
   createdAt: string;
 };
 
@@ -265,7 +266,9 @@ export default function ManageOrganizers() {
                         <td>{organizer.name}</td>
                         <td>{organizer.email}</td>
                         <td>
-                          {organizer.isDisabled ? (
+                          {organizer.isArchived ? (
+                            <Badge bg="dark">Archived</Badge>
+                          ) : organizer.isDisabled ? (
                             <Badge bg="secondary">Disabled</Badge>
                           ) : (
                             <Badge bg="success">Active</Badge>
@@ -274,25 +277,46 @@ export default function ManageOrganizers() {
                         <td>{new Date(organizer.createdAt).toLocaleString()}</td>
                         <td>
                           <div className="d-flex justify-content-end gap-2 flex-wrap">
-                            <Button
-                              size="sm"
-                              variant="outline-warning"
-                              disabled={busy || organizer.isDisabled}
-                              onClick={() => {
-                                void runAction(
-                                  `/api/admin/organizers/${organizer.id}/disable`,
-                                  organizer.id,
-                                  "Organizer disabled successfully",
-                                );
-                              }}
-                            >
-                              Disable
-                            </Button>
+                            {organizer.isDisabled && !organizer.isArchived ? (
+                              <Button
+                                size="sm"
+                                variant="outline-success"
+                                disabled={busy}
+                                onClick={() => {
+                                  void runAction(
+                                    `/api/admin/organizers/${organizer.id}/enable`,
+                                    organizer.id,
+                                    "Organizer enabled successfully",
+                                  );
+                                }}
+                              >
+                                Enable
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline-warning"
+                                disabled={busy || organizer.isDisabled || organizer.isArchived}
+                                onClick={() => {
+                                  void runAction(
+                                    `/api/admin/organizers/${organizer.id}/disable`,
+                                    organizer.id,
+                                    "Organizer disabled successfully",
+                                  );
+                                }}
+                              >
+                                Disable
+                              </Button>
+                            )}
 
                             <Button
                               size="sm"
                               variant="outline-secondary"
-                              disabled={busy || organizer.isDisabled}
+                              disabled={
+                                busy ||
+                                !organizer.isDisabled ||
+                                organizer.isArchived
+                              }
                               onClick={() => {
                                 void runAction(
                                   `/api/admin/organizers/${organizer.id}/archive`,

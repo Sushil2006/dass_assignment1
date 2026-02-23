@@ -19,7 +19,22 @@ import TicketDetail from "./pages/participant/TicketDetail";
 import Organizers from "./pages/participant/Organizers";
 import OrganizerDetail from "./pages/participant/OrganizerDetail";
 import Profile from "./pages/participant/Profile";
-import { AuthProvider } from "./lib/authState";
+import { AuthProvider, useAuth } from "./lib/authState";
+
+function pathForRole(role: "participant" | "organizer" | "admin"): string {
+  if (role === "participant") return "/participant";
+  if (role === "organizer") return "/organizer";
+  return "/admin";
+}
+
+function NotFoundRedirect() {
+  const { user, loading } = useAuth();
+
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+
+  return <Navigate to={pathForRole(user.role)} replace />;
+}
 
 export default function App() {
   return (
@@ -58,6 +73,8 @@ export default function App() {
               element={<AdminPasswordResetRequests />}
             />
           </Route>
+
+          <Route path="*" element={<NotFoundRedirect />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

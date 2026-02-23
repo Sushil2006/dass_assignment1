@@ -4,6 +4,7 @@ export const collections = {
   registrations: "registrations",
   tickets: "tickets",
   payments: "payments",
+  organizerPasswordResetRequests: "organizer_password_reset_requests",
   attendances: "attendances",
   announcements: "announcements",
 } as const;

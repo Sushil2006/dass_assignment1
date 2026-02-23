@@ -10,6 +10,7 @@ import { getDb } from "../db/client";
 import { collections } from "../db/collections";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { sendTicketEmailSafe } from "../utils/email";
+import { isParticipantEligibleForEvent } from "../utils/eligibility";
 import { buildTicketDoc, type StoredTicketDoc } from "../utils/tickets";
 
 export const participationsRouter = Router();
@@ -48,6 +49,7 @@ type StoredEventDoc = {
   type: EventType;
   organizerId: ObjectId;
   status: PersistedEventStatus;
+  eligibility: string;
   regFee: number;
   regDeadline: Date;
   regLimit: number;
@@ -111,6 +113,7 @@ type ParticipantUserDoc = {
   email: string;
   role: "participant";
   name: string;
+  participantType?: "iiit" | "non-iiit";
 };
 
 const inactiveParticipationStatuses: ParticipationStatus[] = [
@@ -555,6 +558,20 @@ participationsRouter.post(
         return rejectWithCleanup(res, 400, availabilityError, uploadedFiles);
       }
 
+      if (
+        !isParticipantEligibleForEvent({
+          eventEligibility: event.eligibility,
+          participantType: participant.participantType ?? null,
+        })
+      ) {
+        return rejectWithCleanup(
+          res,
+          403,
+          "You are not eligible for this event",
+          uploadedFiles,
+        );
+      }
+
       const existingParticipation = await participations.findOne({
         eventId,
         userId: participantId,
@@ -845,6 +862,17 @@ participationsRouter.post(
       const availabilityError = validateParticipationWindow(event, new Date());
       if (availabilityError) {
         return res.status(400).json({ error: { message: availabilityError } });
+      }
+
+      if (
+        !isParticipantEligibleForEvent({
+          eventEligibility: event.eligibility,
+          participantType: participant.participantType ?? null,
+        })
+      ) {
+        return res
+          .status(403)
+          .json({ error: { message: "You are not eligible for this event" } });
       }
 
       const existingParticipation = await participations.findOne({

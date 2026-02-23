@@ -265,7 +265,7 @@ export default function MyEvents({ mode = "all" }: MyEventsProps) {
           <Card className="border mb-3">
             <Card.Body>
               <Card.Title className="h5 mb-3">Events Carousel</Card.Title>
-              <Carousel interval={null}>
+              <Carousel interval={null} className="events-carousel">
                 {carouselSlides.map((slide, index) => (
                   <Carousel.Item key={`slide-${index}`}>
                     <Row className="g-3">

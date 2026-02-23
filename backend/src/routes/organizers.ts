@@ -3,7 +3,11 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { getDb } from "../db/client";
 import { collections } from "../db/collections";
-import type { UserDoc } from "../db/models";
+import type {
+  OrganizerPasswordResetRequestDoc,
+  OrganizerPasswordResetRequestStatus,
+  UserDoc,
+} from "../db/models";
 import { requireAuth, requireRole } from "../middleware/auth";
 
 export const organizersRouter = Router();
@@ -35,6 +39,16 @@ type OrganizerProfileDoc = UserDoc & {
   discordWebhookUrl?: string;
 };
 
+type OrganizerPasswordResetRequestResponse = {
+  id: string;
+  reason: string;
+  status: OrganizerPasswordResetRequestStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  resolvedAt: Date | null;
+  adminComment: string | null;
+};
+
 const organizerProfilePatchSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   category: z.string().trim().max(120).optional(),
@@ -42,6 +56,10 @@ const organizerProfilePatchSchema = z.object({
   contactEmail: z.union([z.string().trim().email(), z.literal("")]).optional(),
   contactNumber: z.string().trim().max(30).optional(),
   discordWebhookUrl: z.union([z.string().trim().url(), z.literal("")]).optional(),
+});
+
+const organizerPasswordResetRequestCreateSchema = z.object({
+  reason: z.string().trim().min(8).max(500),
 });
 
 function parseObjectId(rawId: unknown): ObjectId | null {
@@ -100,6 +118,20 @@ function toPublicOrganizerEvent(event: OrganizerPublicEventDoc) {
     status: event.status,
     displayStatus: deriveDisplayStatus(event, new Date()),
     createdAt: event.createdAt,
+  };
+}
+
+function toOrganizerPasswordResetRequestResponse(
+  request: OrganizerPasswordResetRequestDoc,
+): OrganizerPasswordResetRequestResponse {
+  return {
+    id: request._id.toString(),
+    reason: request.reason,
+    status: request.status,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
+    resolvedAt: request.resolvedAt ?? null,
+    adminComment: request.adminComment ?? null,
   };
 }
 
@@ -317,6 +349,104 @@ organizersRouter.patch(
       }
 
       return res.json({ profile: toOrganizerSelfProfile(updated) });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// organizer creates a password reset request for admin review
+organizersRouter.post(
+  "/me/password-reset-requests",
+  requireAuth,
+  requireRole("organizer"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const organizerId = parseObjectId(authUser.id);
+      if (!organizerId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const parsed = organizerPasswordResetRequestCreateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: { message: "Invalid request", details: parsed.error.flatten() },
+        });
+      }
+
+      const db = getDb();
+      const requests = db.collection<OrganizerPasswordResetRequestDoc>(
+        collections.organizerPasswordResetRequests,
+      );
+
+      const pending = await requests.findOne({
+        organizerId,
+        status: "pending",
+      });
+
+      if (pending) {
+        return res.status(409).json({
+          error: { message: "A pending password reset request already exists" },
+        });
+      }
+
+      const now = new Date();
+      const request: OrganizerPasswordResetRequestDoc = {
+        _id: new ObjectId(),
+        organizerId,
+        reason: parsed.data.reason,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await requests.insertOne(request);
+
+      return res.status(201).json({
+        request: toOrganizerPasswordResetRequestResponse(request),
+      });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// organizer reads own reset request history
+organizersRouter.get(
+  "/me/password-reset-requests",
+  requireAuth,
+  requireRole("organizer"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const organizerId = parseObjectId(authUser.id);
+      if (!organizerId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const db = getDb();
+      const requests = db.collection<OrganizerPasswordResetRequestDoc>(
+        collections.organizerPasswordResetRequests,
+      );
+
+      const history = await requests
+        .find({ organizerId })
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .toArray();
+
+      return res.json({
+        requests: history.map(toOrganizerPasswordResetRequestResponse),
+      });
     } catch (err) {
       return next(err);
     }

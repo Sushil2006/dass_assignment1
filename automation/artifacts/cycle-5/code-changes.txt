@@ -1,2 +1,0 @@
-./automation/playwright/test-results/.last-run.json
-./automation/playwright/tests/participant-cancel-reregister.spec.js

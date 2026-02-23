@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Alert, Button, Card, Container, Form } from "react-bootstrap";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { login } from "../lib/auth";
 import { useAuth } from "../lib/authState";
 
@@ -19,11 +19,9 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!loading && user) {
-      navigate(pathForRole(user.role), { replace: true });
-    }
-  }, [loading, navigate, user]);
+  if (!loading && user) {
+    return <Navigate to={pathForRole(user.role)} replace />;
+  }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

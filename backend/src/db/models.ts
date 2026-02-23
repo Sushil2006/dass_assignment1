@@ -21,6 +21,7 @@ export type UserDoc = {
   collegeOrOrganization?: string;
   contactNumber?: string;
   isDisabled?: boolean;
+  archivedAt?: Date;
 };
 
 export type UserInsert = Omit<UserDoc, "_id">; // removes the _id attribute
@@ -133,3 +134,28 @@ export type PaymentDoc = {
 };
 
 export type PaymentInsert = Omit<PaymentDoc, "_id">;
+
+export const organizerPasswordResetRequestStatuses = [
+  "pending",
+  "approved",
+  "rejected",
+] as const;
+export type OrganizerPasswordResetRequestStatus =
+  (typeof organizerPasswordResetRequestStatuses)[number];
+
+export type OrganizerPasswordResetRequestDoc = {
+  _id: ObjectId;
+  organizerId: ObjectId;
+  reason: string;
+  status: OrganizerPasswordResetRequestStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  resolvedAt?: Date;
+  adminComment?: string;
+  reviewedByAdminId?: ObjectId;
+};
+
+export type OrganizerPasswordResetRequestInsert = Omit<
+  OrganizerPasswordResetRequestDoc,
+  "_id"
+>;

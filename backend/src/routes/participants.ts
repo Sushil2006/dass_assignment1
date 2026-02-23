@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getDb } from "../db/client";
 import { collections } from "../db/collections";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { isParticipantEligibleForEvent } from "../utils/eligibility";
 
 export const participantsRouter = Router();
 
@@ -221,6 +222,61 @@ function toPublicFollowedOrganizerResponse(organizer: OrganizerUserDoc) {
   };
 }
 
+async function listActiveFollowedOrganizerIds(
+  users: Collection<ParticipantUserDoc | OrganizerUserDoc>,
+  followedOrganizerIds: ObjectId[],
+): Promise<ObjectId[]> {
+  if (followedOrganizerIds.length === 0) {
+    return [];
+  }
+
+  const activeOrganizerDocs = await users
+    .find({
+      _id: { $in: followedOrganizerIds },
+      role: "organizer",
+      isDisabled: { $ne: true },
+    })
+    .toArray();
+
+  const activeOrganizerIdSet = new Set(
+    activeOrganizerDocs.map((organizer) => organizer._id.toString()),
+  );
+
+  return followedOrganizerIds.filter((id) =>
+    activeOrganizerIdSet.has(id.toString()),
+  );
+}
+
+async function normalizeParticipantFollows(params: {
+  users: Collection<ParticipantUserDoc | OrganizerUserDoc>;
+  participants: Collection<ParticipantUserDoc>;
+  participant: ParticipantUserDoc;
+}): Promise<ParticipantUserDoc> {
+  const followedOrganizerIds = params.participant.followedOrganizerIds ?? [];
+  if (followedOrganizerIds.length === 0) {
+    return params.participant;
+  }
+
+  const activeFollowedOrganizerIds = await listActiveFollowedOrganizerIds(
+    params.users,
+    followedOrganizerIds,
+  );
+
+  if (activeFollowedOrganizerIds.length === followedOrganizerIds.length) {
+    return params.participant;
+  }
+
+  await params.participants.updateOne(
+    { _id: params.participant._id, role: "participant" },
+    { $set: { followedOrganizerIds: activeFollowedOrganizerIds } },
+  );
+
+  return {
+    ...params.participant,
+    followedOrganizerIds: activeFollowedOrganizerIds,
+  };
+}
+
 // participant gets own profile and stored onboarding preferences
 participantsRouter.get(
   "/me/profile",
@@ -238,8 +294,11 @@ participantsRouter.get(
         return res.status(401).json({ error: { message: "Not authenticated" } });
       }
 
-      const users = getDb().collection<ParticipantUserDoc>(collections.users);
-      const participant = await users.findOne({
+      const participants = getDb().collection<ParticipantUserDoc>(collections.users);
+      const users = getDb().collection<ParticipantUserDoc | OrganizerUserDoc>(
+        collections.users,
+      );
+      const participant = await participants.findOne({
         _id: participantId,
         role: "participant",
       });
@@ -247,7 +306,15 @@ participantsRouter.get(
         return res.status(404).json({ error: { message: "Participant not found" } });
       }
 
-      return res.json({ profile: toParticipantProfileResponse(participant) });
+      const normalizedParticipant = await normalizeParticipantFollows({
+        users,
+        participants,
+        participant,
+      });
+
+      return res.json({
+        profile: toParticipantProfileResponse(normalizedParticipant),
+      });
     } catch (err) {
       return next(err);
     }
@@ -278,8 +345,11 @@ participantsRouter.patch(
         });
       }
 
-      const users = getDb().collection<ParticipantUserDoc>(collections.users);
-      const existing = await users.findOne({
+      const participants = getDb().collection<ParticipantUserDoc>(collections.users);
+      const users = getDb().collection<ParticipantUserDoc | OrganizerUserDoc>(
+        collections.users,
+      );
+      const existing = await participants.findOne({
         _id: participantId,
         role: "participant",
       });
@@ -348,17 +418,28 @@ participantsRouter.patch(
         updateDoc.$unset = unsetPayload;
       }
 
-      await users.updateOne(
+      await participants.updateOne(
         { _id: participantId, role: "participant" },
         updateDoc,
       );
 
-      const updated = await users.findOne({ _id: participantId, role: "participant" });
+      const updated = await participants.findOne({
+        _id: participantId,
+        role: "participant",
+      });
       if (!updated) {
         return res.status(404).json({ error: { message: "Participant not found" } });
       }
 
-      return res.json({ profile: toParticipantProfileResponse(updated) });
+      const normalizedParticipant = await normalizeParticipantFollows({
+        users,
+        participants,
+        participant: updated,
+      });
+
+      return res.json({
+        profile: toParticipantProfileResponse(normalizedParticipant),
+      });
     } catch (err) {
       return next(err);
     }
@@ -403,6 +484,7 @@ participantsRouter.post(
       const users = getDb().collection<ParticipantUserDoc | OrganizerUserDoc>(
         collections.users,
       );
+      const participants = getDb().collection<ParticipantUserDoc>(collections.users);
 
       if (followedOrganizerObjectIds.length > 0) {
         const activeFollowableCount = await users.countDocuments({
@@ -437,7 +519,15 @@ participantsRouter.post(
         return res.status(404).json({ error: { message: "Participant not found" } });
       }
 
-      return res.json({ profile: toParticipantProfileResponse(updated) });
+      const normalizedParticipant = await normalizeParticipantFollows({
+        users,
+        participants,
+        participant: updated,
+      });
+
+      return res.json({
+        profile: toParticipantProfileResponse(normalizedParticipant),
+      });
     } catch (err) {
       return next(err);
     }
@@ -469,6 +559,7 @@ participantsRouter.post(
       const users = getDb().collection<ParticipantUserDoc | OrganizerUserDoc>(
         collections.users,
       );
+      const participants = getDb().collection<ParticipantUserDoc>(collections.users);
       const organizer = await users.findOne({
         _id: organizerId,
         role: "organizer",
@@ -483,15 +574,23 @@ participantsRouter.post(
         { $addToSet: { followedOrganizerIds: organizerId } },
       );
 
-      const updated = await users.findOne({
+      const updated = await participants.findOne({
         _id: participantId,
         role: "participant",
       });
-      if (!updated || updated.role !== "participant") {
+      if (!updated) {
         return res.status(404).json({ error: { message: "Participant not found" } });
       }
 
-      return res.json({ profile: toParticipantProfileResponse(updated) });
+      const normalizedParticipant = await normalizeParticipantFollows({
+        users,
+        participants,
+        participant: updated,
+      });
+
+      return res.json({
+        profile: toParticipantProfileResponse(normalizedParticipant),
+      });
     } catch (err) {
       return next(err);
     }
@@ -520,13 +619,17 @@ participantsRouter.delete(
         return res.status(400).json({ error: { message: "Invalid organizer id" } });
       }
 
-      const users = getDb().collection<ParticipantUserDoc>(collections.users);
-      await users.updateOne(
+      const participants = getDb().collection<ParticipantUserDoc>(collections.users);
+      const users = getDb().collection<ParticipantUserDoc | OrganizerUserDoc>(
+        collections.users,
+      );
+
+      await participants.updateOne(
         { _id: participantId, role: "participant" },
         { $pull: { followedOrganizerIds: organizerId } },
       );
 
-      const updated = await users.findOne({
+      const updated = await participants.findOne({
         _id: participantId,
         role: "participant",
       });
@@ -534,7 +637,15 @@ participantsRouter.delete(
         return res.status(404).json({ error: { message: "Participant not found" } });
       }
 
-      return res.json({ profile: toParticipantProfileResponse(updated) });
+      const normalizedParticipant = await normalizeParticipantFollows({
+        users,
+        participants,
+        participant: updated,
+      });
+
+      return res.json({
+        profile: toParticipantProfileResponse(normalizedParticipant),
+      });
     } catch (err) {
       return next(err);
     }
@@ -622,9 +733,19 @@ function canRegisterNow(event: StoredEventDoc, now: Date): boolean {
 async function canRegisterForEventDetail(params: {
   event: StoredEventDoc;
   participations: Collection<StoredParticipationDoc>;
+  participantType?: ParticipantType | null;
   now: Date;
 }): Promise<boolean> {
   if (!canRegisterNow(params.event, params.now)) {
+    return false;
+  }
+
+  if (
+    !isParticipantEligibleForEvent({
+      eventEligibility: params.event.eligibility,
+      participantType: params.participantType ?? null,
+    })
+  ) {
     return false;
   }
 
@@ -854,7 +975,17 @@ participantsRouter.get(
       const participations = db.collection<StoredParticipationDoc>(
         collections.registrations,
       );
-      const users = db.collection<OrganizerUserDoc>(collections.users);
+      const users = db.collection<ParticipantUserDoc | OrganizerUserDoc>(
+        collections.users,
+      );
+
+      const participant = await users.findOne({
+        _id: participantId,
+        role: "participant",
+      });
+      if (!participant || participant.role !== "participant") {
+        return res.status(404).json({ error: { message: "Participant not found" } });
+      }
 
       const event = await events.findOne({ _id: eventId });
       if (!event) {
@@ -874,12 +1005,21 @@ participantsRouter.get(
         _id: event.organizerId,
         role: "organizer",
       });
-      const organizerName = organizer?.name;
-      const canRegister = await canRegisterForEventDetail({
-        event,
-        participations,
-        now: new Date(),
-      });
+      const organizerIsActive =
+        organizer?.role === "organizer" && organizer.isDisabled !== true;
+      if (!organizerIsActive) {
+        return res.status(404).json({ error: { message: "Event not found" } });
+      }
+
+      const organizerName = organizer?.role === "organizer" ? organizer.name : undefined;
+      const canRegister = organizerIsActive
+        ? await canRegisterForEventDetail({
+            event,
+            participations,
+            participantType: participant.participantType ?? null,
+            now: new Date(),
+          })
+        : false;
 
       return res.json({
         event: toParticipantEventResponse(event, organizerName, canRegister),

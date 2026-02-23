@@ -1952,19 +1952,23 @@ eventsRouter.get("/", async (req, res, next) => {
             .find({
               _id: { $in: eventOrganizerIds },
               role: "organizer",
+              isDisabled: { $ne: true },
             })
             .toArray()
         : [];
     const organizerNameById = new Map(
       organizerDocs.map((entry) => [entry._id.toString(), entry.name]),
     );
+    const visibleEvents = foundEvents.filter((event) =>
+      organizerNameById.has(event.organizerId.toString()),
+    );
 
     const statusFiltered =
       parsed.data.status === "ONGOING"
-        ? foundEvents.filter(
+        ? visibleEvents.filter(
             (event) => deriveDisplayStatus(event, new Date()) === "ONGOING",
           )
-        : foundEvents;
+        : visibleEvents;
 
     const queryText = parsed.data.q;
     const qFiltered = queryText
@@ -2031,6 +2035,7 @@ eventsRouter.get("/trending", async (_req, res, next) => {
       collections.registrations,
     );
     const events = db.collection<StoredEventDoc>(collections.events);
+    const organizers = db.collection<OrganizerUserDoc>(collections.users);
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const topRegistrations = await registrations
@@ -2063,8 +2068,26 @@ eventsRouter.get("/trending", async (_req, res, next) => {
       })
       .toArray();
 
+    const organizerIds = [
+      ...new Set(topEvents.map((event) => event.organizerId.toString())),
+    ].map((id) => new ObjectId(id));
+    const activeOrganizers =
+      organizerIds.length > 0
+        ? await organizers
+            .find({
+              _id: { $in: organizerIds },
+              role: "organizer",
+              isDisabled: { $ne: true },
+            })
+            .toArray()
+        : [];
+    const activeOrganizerIds = new Set(
+      activeOrganizers.map((organizer) => organizer._id.toString()),
+    );
     const eventsById = new Map(
-      topEvents.map((event) => [event._id.toString(), event]),
+      topEvents
+        .filter((event) => activeOrganizerIds.has(event.organizerId.toString()))
+        .map((event) => [event._id.toString(), event]),
     );
 
     const ordered = topRegistrations
@@ -2096,12 +2119,22 @@ eventsRouter.get("/:eventId", async (req, res, next) => {
 
     const db = getDb();
     const events = db.collection<StoredEventDoc>(collections.events);
+    const organizers = db.collection<OrganizerUserDoc>(collections.users);
     const event = await events.findOne({
       _id: eventId,
       status: { $in: publicPersistedStatuses },
     });
 
     if (!event) {
+      return res.status(404).json({ error: { message: "Event not found" } });
+    }
+
+    const organizer = await organizers.findOne({
+      _id: event.organizerId,
+      role: "organizer",
+      isDisabled: { $ne: true },
+    });
+    if (!organizer) {
       return res.status(404).json({ error: { message: "Event not found" } });
     }
 

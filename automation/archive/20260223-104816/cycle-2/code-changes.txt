@@ -1,6 +1,0 @@
-./automation/playwright/test-results/admin-organizer-admin-crea-84d64--in-and-creates-draft-event-chromium-mobile/error-context.md (deleted)
-./automation/playwright/test-results/.last-run.json
-./automation/playwright/tests/admin-password-reset-nav.smoke.spec.js
-./frontend/src/App.tsx
-./frontend/src/components/AppNav.tsx
-./frontend/src/pages/admin/AdminPasswordResetRequests.tsx

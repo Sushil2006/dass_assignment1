@@ -1,12 +1,18 @@
 import { useState } from "react";
 import { Alert, Button, Card, Container, Form } from "react-bootstrap";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { signup } from "../lib/auth";
 import { useAuth } from "../lib/authState";
 
+function pathForRole(role: string) {
+  if (role === "participant") return "/participant";
+  if (role === "organizer") return "/organizer";
+  return "/admin";
+}
+
 export default function Signup() {
   const navigate = useNavigate();
-  const { setUser } = useAuth();
+  const { user, loading, setUser } = useAuth();
 
   // Participant signup form state.
   const [firstName, setFirstName] = useState("");
@@ -17,6 +23,10 @@ export default function Signup() {
   // UI state for request lifecycle.
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  if (!loading && user) {
+    return <Navigate to={pathForRole(user.role)} replace />;
+  }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

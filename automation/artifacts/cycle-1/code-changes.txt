@@ -1,4 +1,0 @@
-./frontend/src/lib/errors.ts
-./frontend/src/pages/admin/ManageOrganizers.tsx
-./frontend/src/pages/organizer/CreateEventWizard.tsx
-./frontend/src/pages/participant/BrowseEvents.tsx
