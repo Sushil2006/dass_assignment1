@@ -1,4 +1,0 @@
-cycle=smoke-2
-status=pass
-duration_seconds=17
-date=2026-02-22 23:06:26

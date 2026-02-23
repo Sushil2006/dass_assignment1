@@ -16,6 +16,9 @@ Rules:
 - Preserve existing user-visible behavior unless it is clearly wrong.
 - If a test is wrong, fix the test with explicit rationale in your final summary.
 - Never run `sudo`, `su`, `apt`, `apt-get`, `dnf`, `yum`, or any system-level package install command.
+- Never run process-kill commands: `pkill`, `kill`, `killall`, `xargs kill`, `fuser -k`, `lsof ... | xargs kill`.
+- Never stop or terminate the overnight automation itself (`overnight_loop.sh`, `run_cycle.sh`, `run_codex_fix.sh`, `codex exec`) under any circumstance.
+- Never stop backend/frontend services unless the prompt explicitly asks for service restart as the final chosen fix; prefer reusing existing services.
 
 Deliverables:
 - Short failure root-cause explanation.

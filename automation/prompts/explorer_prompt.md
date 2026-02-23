@@ -18,6 +18,9 @@ Constraints:
 - Never run `sudo`, `su`, `apt`, `apt-get`, `dnf`, `yum`, or any system package install command.
 - Never attempt to install browsers/system dependencies globally.
 - If Playwright MCP browser launch fails due missing system browser, skip MCP browser actions and continue with repository Playwright suite + code fixes + new tests.
+- Never run process-kill commands: `pkill`, `kill`, `killall`, `xargs kill`, `fuser -k`, `lsof ... | xargs kill`.
+- Never stop or terminate the overnight automation itself (`overnight_loop.sh`, `run_cycle.sh`, `run_codex_fix.sh`, `codex exec`) under any circumstance.
+- Never stop backend/frontend services unless absolutely required to validate a specific fix; if unsure, do not stop services.
 
 Environment:
 - Frontend URL: http://127.0.0.1:4173
