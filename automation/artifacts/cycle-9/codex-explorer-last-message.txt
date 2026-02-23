@@ -1,0 +1,44 @@
+**Tested Flows (MCP Browser)**
+- Auth:
+  - Invalid login shows `Invalid credentials`.
+  - Participant, organizer, and admin logins with seeded/new credentials.
+  - RBAC redirects held (`participant -> /admin` and `/organizer` redirected back; `organizer -> /admin` redirected back).
+  - Disabled organizer login blocked with `Organizer account is disabled`.
+- Participant journey:
+  - Browse events, open event detail, submit normal registration, ticket link opens ticket detail with QR payload.
+  - My Events tab behavior (`Upcoming` -> cancel -> `Cancelled/Rejected`) validated.
+  - Organizer follow/unfollow from list and organizer detail validated.
+  - Profile negative checks: password mismatch and wrong current password both correctly blocked.
+- Organizer journey:
+  - Create draft event, publish event, lifecycle actions, edit modal restrictions for published events.
+  - Boundary checks for published edits (deadline shrink and limit decrease) correctly rejected.
+- Admin journey:
+  - Manage organizers: create organizer, generated credentials shown, disable organizer.
+
+**Defects Found and Fixed**
+1. `PUBLISHED` events could be moved directly to `COMPLETED` even when not ongoing (lifecycle violation).
+- Fix: added backend transition validation + hid `Complete` UI for non-ongoing published events.
+- Verified post-fix:
+  - UI no longer shows `Complete` for non-ongoing published.
+  - Forced API call returns `400` with `Only ongoing events can be marked completed`.
+
+2. Organizers could delete non-draft events (published/completed), bypassing lifecycle controls.
+- Fix: backend now allows delete only for `DRAFT`; UI shows delete only for draft cards.
+- Verified post-fix:
+  - No delete button on published/completed cards.
+  - Forced delete API call on published event returns `400` with `Only draft events can be deleted`.
+
+**Checks Run After Fixes**
+- `npm --prefix frontend run build` passed.
+- `npm --prefix backend run typecheck` passed.
+- Playwright CLI run for new test could not execute in this sandbox due browser launch restriction (`sandbox_host_linux.cc` fatal), so validation was done via MCP browser + direct authenticated fetch probes.
+
+**Added/Edited Files**
+- `backend/src/routes/events.ts`
+- `frontend/src/pages/organizer/MyEvents.tsx`
+- `automation/playwright/tests/organizer-status-transition-boundary.spec.js`
+
+**Remaining Risks**
+- `frontend/src/pages/admin/AdminPasswordResetRequests.tsx` is still a placeholder (no actionable admin workflow for organizer reset requests).
+- Participant profile does not directly edit followed organizers in-page (`frontend/src/pages/participant/Profile.tsx` links out to organizers page).
+- I changed runtime DB state during exploratory runs (disabled seeded organizer, created temporary organizer/events); if you need clean seed behavior immediately, run your reset script before the next suite.

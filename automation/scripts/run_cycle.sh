@@ -165,6 +165,10 @@ snapshot_code_state "$CYCLE_DIR/code-state-start.tsv"
 "$AUTOMATION_DIR/scripts/start_services.sh" "$ENV_FILE" "$CYCLE_DIR"
 "$AUTOMATION_DIR/scripts/run_codex_explorer.sh" "$ENV_FILE" "$CYCLE_DIR" || true
 
+# Explorer runs can intentionally mutate runtime data for validation.
+# Re-seed deterministic fixtures so smoke/full suites always start clean.
+"$AUTOMATION_DIR/scripts/reset_state.sh" "$ENV_FILE" >"$CYCLE_DIR/reset-after-explorer.log" 2>&1
+
 if run_tests; then
   status="pass"
 else

@@ -1,6 +1,7 @@
 const { defineConfig, devices } = require('@playwright/test');
 
-const baseURL = process.env.BASE_URL || 'http://127.0.0.1:4173';
+const frontendPort = process.env.FRONTEND_PORT || '4173';
+const baseURL = process.env.BASE_URL || `http://127.0.0.1:${frontendPort}`;
 const headless = String(process.env.PW_HEADLESS || 'true') !== 'false';
 const retries = Number(process.env.PW_RETRIES || '0');
 

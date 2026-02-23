@@ -1,0 +1,32 @@
+**Validated Flows**
+- Checked spec context from `docs/assignment1.pdf` and aligned QA to RBAC/navigation/event participation paths.
+- MCP browser: unauthenticated route guards redirect correctly:
+  - `/admin` -> `/login`
+  - `/organizer` -> `/login`
+  - `/participant` -> `/login`
+- MCP browser: negative login case works (`Invalid credentials`).
+- MCP browser (before backend became unavailable): participant login, dashboard/nav visibility, browse events, event detail open, successful registration, ticket link generation, duplicate-active-participation block.
+- MCP browser (after backend outage): confirmed login page remained usable under repeated `/api/auth/me` network failures without runtime `TypeError` logs after fix.
+
+**Discovered Issue + Fix**
+- Defect: auth bootstrap failures were not safely handled in frontend auth boot paths, causing runtime promise/type errors when `/api/auth/me` failed (seen in console earlier as `TypeError: Failed to fetch`).
+- Fix:
+  - `frontend/src/lib/authState.ts:8` catches `getMe()` failures and safely sets user to logged-out state.
+  - `frontend/src/pages/Login.tsx:23` wraps initial `getMe()` boot call in `try/catch` and uses `void boot()` to avoid unhandled promise behavior.
+- Added regression coverage:
+  - `automation/playwright/tests/auth-bootstrap-resilience.smoke.spec.js:1`
+  - This smoke test forces `/api/auth/me` failure and asserts login page stability with no runtime promise/type errors.
+
+**Required Local Checks**
+- `npm --prefix frontend run build` passed.
+- `npm --prefix backend run typecheck` passed.
+- Attempted Playwright CLI run for new test, but local browser launch is blocked by sandbox (`sandbox_host_linux.cc` fatal). MCP browser QA was used instead.
+
+**Edited Files**
+- `frontend/src/lib/authState.ts`
+- `frontend/src/pages/Login.tsx`
+- `automation/playwright/tests/auth-bootstrap-resilience.smoke.spec.js`
+
+**Remaining Risks**
+- Backend at `127.0.0.1:4100` became unreachable during the session (connection refused), so full live admin/organizer end-to-end journeys could not be completed in this run.
+- Local Playwright CLI execution is blocked in this sandbox, so the new smoke test could not be executed here even though it is added and ready for CI/normal local environments.

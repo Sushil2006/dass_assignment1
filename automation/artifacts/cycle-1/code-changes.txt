@@ -1,0 +1,3 @@
+./automation/playwright/tests/organizer-profile-nav.smoke.spec.js
+./frontend/src/App.tsx
+./frontend/src/components/AppNav.tsx

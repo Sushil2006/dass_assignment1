@@ -1,0 +1,4 @@
+./automation/playwright/test-results/.last-run.json
+./automation/playwright/tests/organizer-published-edit-limited.spec.js
+./frontend/src/pages/organizer/EventEditorForm.tsx
+./frontend/src/pages/organizer/MyEvents.tsx

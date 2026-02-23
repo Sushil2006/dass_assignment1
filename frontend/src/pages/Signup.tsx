@@ -2,9 +2,11 @@ import { useState } from "react";
 import { Alert, Button, Card, Container, Form } from "react-bootstrap";
 import { Link, useNavigate } from "react-router-dom";
 import { signup } from "../lib/auth";
+import { useAuth } from "../lib/authState";
 
 export default function Signup() {
   const navigate = useNavigate();
+  const { setUser } = useAuth();
 
   // Participant signup form state.
   const [firstName, setFirstName] = useState("");
@@ -22,7 +24,8 @@ export default function Signup() {
     setBusy(true);
 
     try {
-      await signup(firstName, lastName, email, password);
+      const user = await signup(firstName, lastName, email, password);
+      setUser(user);
       // Signup is participant-only in this milestone.
       navigate("/participant", { replace: true });
     } catch (err) {

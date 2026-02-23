@@ -1,4 +1,4 @@
-import { type Request, Router } from "express";
+cimport { type Request, Router } from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { getDb } from "../db/client";
@@ -483,6 +483,45 @@ function deriveDisplayStatus(
   }
 
   return event.status;
+}
+
+function validateOrganizerStatusTransition(
+  event: StoredEventDoc,
+  nextStatus: PersistedEventStatus,
+  now: Date,
+): string | null {
+  if (event.status === nextStatus) return null;
+
+  if (event.status === "COMPLETED") {
+    return "Completed events cannot change status";
+  }
+
+  if (event.status === "DRAFT") {
+    if (nextStatus !== "PUBLISHED") {
+      return "Draft events can only be moved to PUBLISHED";
+    }
+    return null;
+  }
+
+  if (event.status === "PUBLISHED") {
+    if (nextStatus === "CLOSED") return null;
+
+    if (nextStatus === "COMPLETED") {
+      if (deriveDisplayStatus(event, now) === "ONGOING") return null;
+      return "Only ongoing events can be marked completed";
+    }
+
+    return "Published events can only be moved to CLOSED";
+  }
+
+  if (event.status === "CLOSED") {
+    if (nextStatus !== "COMPLETED") {
+      return "Closed events can only be moved to COMPLETED";
+    }
+    return null;
+  }
+
+  return "Invalid event status transition";
 }
 
 function sanitizeNormalFormByType(
@@ -1733,16 +1772,18 @@ eventsRouter.patch(
         return res.status(404).json({ error: { message: "Event not found" } });
       }
 
-      if (
-        existing.status === "COMPLETED" &&
-        parsed.data.status !== "COMPLETED"
-      ) {
+      const updatedAt = new Date();
+      const transitionError = validateOrganizerStatusTransition(
+        existing,
+        parsed.data.status,
+        updatedAt,
+      );
+      if (transitionError) {
         return res.status(400).json({
-          error: { message: "Completed events cannot change status" },
+          error: { message: transitionError },
         });
       }
 
-      const updatedAt = new Date();
       await events.updateOne(
         { _id: eventId, organizerId },
         { $set: { status: parsed.data.status, updatedAt } },
@@ -1812,11 +1853,19 @@ eventsRouter.delete(
 
       const db = getDb();
       const events = db.collection<StoredEventDoc>(collections.events);
-      const result = await events.deleteOne({ _id: eventId, organizerId });
 
-      if (result.deletedCount === 0) {
+      const existing = await events.findOne({ _id: eventId, organizerId });
+      if (!existing) {
         return res.status(404).json({ error: { message: "Event not found" } });
       }
+
+      if (existing.status !== "DRAFT") {
+        return res.status(400).json({
+          error: { message: "Only draft events can be deleted" },
+        });
+      }
+
+      await events.deleteOne({ _id: eventId, organizerId });
 
       return res.json({ ok: true });
     } catch (err) {

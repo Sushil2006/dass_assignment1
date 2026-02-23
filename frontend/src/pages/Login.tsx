@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Alert, Button, Card, Container, Form } from "react-bootstrap";
 import { Link, useNavigate } from "react-router-dom";
-import { getMe, login } from "../lib/auth";
+import { login } from "../lib/auth";
+import { useAuth } from "../lib/authState";
 
 function pathForRole(role: string) {
   if (role === "participant") return "/participant";
@@ -11,6 +12,7 @@ function pathForRole(role: string) {
 
 export default function Login() {
   const navigate = useNavigate();
+  const { user, loading, setUser } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -18,19 +20,10 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function boot() {
-      const me = await getMe();
-      if (cancelled) return;
-      if (me) navigate(pathForRole(me.role), { replace: true });
+    if (!loading && user) {
+      navigate(pathForRole(user.role), { replace: true });
     }
-
-    boot();
-    return () => {
-      cancelled = true;
-    };
-  }, [navigate]);
+  }, [loading, navigate, user]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -39,6 +32,7 @@ export default function Login() {
 
     try {
       const user = await login(email, password);
+      setUser(user);
       navigate(pathForRole(user.role), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");

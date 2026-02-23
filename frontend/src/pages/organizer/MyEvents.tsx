@@ -62,6 +62,13 @@ function toEditorValues(event: OrganizerEvent): EventEditorValues {
   };
 }
 
+function toDateTimeLocalValue(rawValue: string): string {
+  const parsed = new Date(rawValue);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const adjusted = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
+  return adjusted.toISOString().slice(0, 16);
+}
+
 function chunkEvents(events: OrganizerEvent[], chunkSize: number): OrganizerEvent[][] {
   const chunks: OrganizerEvent[][] = [];
 
@@ -167,14 +174,39 @@ export default function MyEvents({ mode = "all" }: MyEventsProps) {
   async function saveEventEdits(values: EventEditorValues) {
     if (!editingEvent) return;
 
-    setSavingEdit(true);
     setError(null);
     setSuccess(null);
+
+    const updatePayload: Partial<EventEditorValues> = {};
+    if (editingEvent.status === "PUBLISHED") {
+      if (values.description !== editingEvent.description) {
+        updatePayload.description = values.description;
+      }
+
+      if (values.regLimit !== editingEvent.regLimit) {
+        updatePayload.regLimit = values.regLimit;
+      }
+
+      const currentDeadlineValue = toDateTimeLocalValue(editingEvent.regDeadline);
+      if (values.regDeadline !== currentDeadlineValue) {
+        updatePayload.regDeadline = values.regDeadline;
+      }
+    } else {
+      Object.assign(updatePayload, values);
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
+      setSuccess("No editable changes detected.");
+      setEditingEventId(null);
+      return;
+    }
+
+    setSavingEdit(true);
 
     try {
       const res = await apiFetch(`/api/events/organizer/${editingEvent.id}`, {
         method: "PATCH",
-        body: JSON.stringify(values),
+        body: JSON.stringify(updatePayload),
       });
       if (!res.ok) throw new Error(await readErrorMessage(res));
 
@@ -262,6 +294,9 @@ export default function MyEvents({ mode = "all" }: MyEventsProps) {
           <Row className="g-3">
             {filteredEvents.map((event) => {
             const busy = actioningId === event.id;
+            const canEdit =
+              event.status === "DRAFT" ||
+              (event.status === "PUBLISHED" && event.displayStatus !== "ONGOING");
 
             return (
               <Col key={event.id} md={6} lg={4}>
@@ -276,15 +311,17 @@ export default function MyEvents({ mode = "all" }: MyEventsProps) {
                         Open
                       </Link>
 
-                      <Button
-                        size="sm"
-                        variant="outline-secondary"
-                        onClick={() => {
-                          setEditingEventId(event.id);
-                        }}
-                      >
-                        Edit
-                      </Button>
+                      {canEdit ? (
+                        <Button
+                          size="sm"
+                          variant="outline-secondary"
+                          onClick={() => {
+                            setEditingEventId(event.id);
+                          }}
+                        >
+                          Edit
+                        </Button>
+                      ) : null}
 
                       {event.status === "DRAFT" ? (
                         <Button
@@ -312,16 +349,18 @@ export default function MyEvents({ mode = "all" }: MyEventsProps) {
                             Close
                           </Button>
 
-                          <Button
-                            size="sm"
-                            variant="outline-dark"
-                            disabled={busy}
-                            onClick={() => {
-                              void updateEventStatus(event.id, "COMPLETED");
-                            }}
-                          >
-                            Complete
-                          </Button>
+                          {event.displayStatus === "ONGOING" ? (
+                            <Button
+                              size="sm"
+                              variant="outline-dark"
+                              disabled={busy}
+                              onClick={() => {
+                                void updateEventStatus(event.id, "COMPLETED");
+                              }}
+                            >
+                              Complete
+                            </Button>
+                          ) : null}
                         </>
                       ) : null}
 
@@ -338,16 +377,18 @@ export default function MyEvents({ mode = "all" }: MyEventsProps) {
                         </Button>
                       ) : null}
 
-                      <Button
-                        size="sm"
-                        variant="outline-danger"
-                        disabled={busy}
-                        onClick={() => {
-                          void deleteEvent(event.id);
-                        }}
-                      >
-                        Delete
-                      </Button>
+                      {event.status === "DRAFT" ? (
+                        <Button
+                          size="sm"
+                          variant="outline-danger"
+                          disabled={busy}
+                          onClick={() => {
+                            void deleteEvent(event.id);
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      ) : null}
                     </>
                   }
                 />
@@ -374,6 +415,9 @@ export default function MyEvents({ mode = "all" }: MyEventsProps) {
             <EventEditorForm
               initialValues={toEditorValues(editingEvent)}
               busy={savingEdit}
+              editPolicy={
+                editingEvent.status === "PUBLISHED" ? "published-limited" : "full"
+              }
               submitLabel="Save changes"
               onSubmit={saveEventEdits}
             />

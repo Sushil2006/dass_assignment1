@@ -1,0 +1,11 @@
+cycle=3
+status=failed-after-fixes
+sweep_mode=smoke
+duration_seconds=1501
+started_at=2026-02-23 00:08:12
+ended_at=2026-02-23 00:33:13
+playwright_runs=3
+fix_attempts_used=2
+pw_test_targets=auto-smoke
+effective_test_targets=auto-smoke
+pw_projects=chromium-desktop

@@ -1,0 +1,47 @@
+**Tested Flows (Playwright MCP browser)**
+- `Participant` auth and RBAC:
+  - Invalid login shows error.
+  - Valid login redirects to `/participant`.
+  - Direct navigation to `/admin/organizers` redirects back to `/participant`.
+- `Participant` browse + registration boundaries:
+  - Search/filter reset behavior (`Search`, `followed clubs only`, `Reset`).
+  - Empty required registration field blocks submit.
+  - Successful registration generates ticket link.
+- `Organizer` auth and RBAC:
+  - Valid login redirects to `/organizer`.
+  - Direct navigation to `/participant/profile` redirects to `/organizer`.
+- `Organizer` event creation boundaries:
+  - Invalid date ordering returns backend validation error.
+  - Valid draft creation succeeds and returns event id.
+- `Admin` lifecycle and RBAC:
+  - Valid login redirects to `/admin`.
+  - Organizer creation returns generated credentials.
+  - Disabling organizer blocks organizer login (`Organizer account is disabled`).
+  - Direct navigation to `/organizer` redirects to `/admin`.
+
+**Discovered Issue + Fix**
+- Issue: after successful participant registration, UI showed both:
+  - success alert (`Registration submitted...`) and
+  - `You already have an active participation...`
+  at the same time on the same submit cycle (contradictory feedback).
+- Fix: suppress “existing active participation” alert while a success state is present.
+  - Updated `frontend/src/pages/participant/EventDetail.tsx:117`
+  - Updated conditional render at `frontend/src/pages/participant/EventDetail.tsx:297`
+
+**Added Regression Test**
+- Added `automation/playwright/tests/participant-registration-feedback.spec.js:1`
+  - Covers: fresh participant signup -> register published event -> assert success/ticket alerts visible and “already active participation” alert absent.
+
+**Local Checks Run**
+- `npm --prefix frontend run build` ✅
+- `npm --prefix backend run typecheck` ✅
+- Attempted: `npm --prefix automation/playwright test tests/participant-registration-feedback.spec.js --project=chromium-desktop` ❌  
+  - Blocked by sandboxed Playwright browser launch (`sandbox_host_linux.cc:41 ... Operation not permitted`), so I validated the fix via MCP browser flow instead.
+
+**Edited Files**
+- `frontend/src/pages/participant/EventDetail.tsx`
+- `automation/playwright/tests/participant-registration-feedback.spec.js`
+
+**Remaining Risks**
+- CLI Playwright execution in this environment is currently blocked, so automated run confirmation for the new test could not be completed here.
+- `Admin Password Reset Requests` is still a static placeholder page (`/admin/password-reset-requests`); end-to-end organizer reset request workflow is not validated in this pass.

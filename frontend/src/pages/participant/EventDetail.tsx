@@ -114,6 +114,7 @@ export default function EventDetail() {
   const event = detail?.event;
   const participation = detail?.myParticipation ?? null;
   const hasActiveParticipation = isActiveParticipation(participation?.status);
+  const showExistingParticipationAlert = hasActiveParticipation && participation && !success;
 
   const sortedNormalFields = useMemo(() => {
     if (!event?.normalForm?.fields) return [];
@@ -293,7 +294,7 @@ export default function EventDetail() {
             </Card.Body>
           </Card>
 
-          {hasActiveParticipation && participation ? (
+          {showExistingParticipationAlert ? (
             <Alert variant="info">
               You already have an active participation ({participation.status}).{" "}
               <Link to={`/participant/tickets/${participation.ticketId}`}>Open Ticket</Link>

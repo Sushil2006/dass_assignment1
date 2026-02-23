@@ -1,0 +1,21 @@
+Failure root cause:
+- The cycle runner seeded/reset state **before** explorer, but not after it.
+- In cycle 9, explorer mutated DB state (including disabling the seeded organizer), then smoke tests ran on that dirty state.
+- `organizer-profile-nav.smoke.spec.js` then failed at login with `403` (`Organizer account is disabled`), seen in `automation/artifacts/cycle-9/playwright/stdout.log` and corroborated by `automation/artifacts/cycle-9/codex-explorer.log`.
+
+Fix implemented:
+- Added a second deterministic reset immediately after explorer and before test execution in `automation/scripts/run_cycle.sh:168`.
+- This ensures smoke/full suites always start from clean seed data, regardless of explorer side effects.
+
+Files changed:
+- `automation/scripts/run_cycle.sh`
+
+Validation commands run:
+1. `npm --prefix frontend run build`  
+- Outcome: passed.
+2. `npm --prefix backend run typecheck`  
+- Outcome: passed.
+3. `bash automation/scripts/run_playwright_suite.sh`  
+- Outcome: failed in this sandbox due Playwright browser launch restriction (`sandbox_host_linux.cc:41 ... Operation not permitted`), not due app/test assertions.
+4. `bash -n automation/scripts/run_cycle.sh`  
+- Outcome: passed (script syntax valid).

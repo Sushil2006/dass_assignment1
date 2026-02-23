@@ -1,0 +1,50 @@
+**Validated Flows**
+- Used `docs/assignment1.pdf` as spec source (the provided `../docs/assignment1.pdf` path was absent).
+- Participant:
+  - Login, dashboard redirect, logout.
+  - Browse filters/search reset and no-match behavior.
+  - Event registration boundary: required-field block, successful registration, ticket link generation.
+  - Invalid ticket route shows not-found state.
+  - My Events cancel flow updates tab counts/status.
+  - Profile boundary: password mismatch validation.
+  - RBAC: participant hitting `/admin` redirected to `/participant`.
+- Organizer:
+  - Login/dashboard/nav.
+  - Create event boundary: invalid date ordering rejected; valid draft creation accepted.
+  - Event detail CSV export works.
+  - RBAC: organizer hitting `/participant` redirected to `/organizer`.
+- Admin:
+  - Login/dashboard/nav.
+  - Organizer creation boundary: empty/whitespace name rejected.
+  - Organizer creation success with generated credentials.
+  - Disable organizer works; disabled organizer login blocked.
+  - Password Reset Requests page route reachable.
+- Negative auth:
+  - Invalid login shows `Invalid credentials`.
+  - Valid admin login/logout still works after fixes.
+
+**Defect Found + Fixed**
+- Defect: duplicated auth bootstrap checks caused repeated `/api/auth/me` calls and noisy auth failures on unauthenticated paths.
+- Root cause: auth state was not shared globally; multiple components were independently fetching auth (`useAuth` local state + navbar route sync + login bootstrap).
+- Fix:
+  - Added shared auth provider/context in `frontend/src/lib/authState.ts`.
+  - Wrapped app with provider in `frontend/src/App.tsx`.
+  - Removed route-change auth polling from `frontend/src/components/AppNav.tsx`.
+  - Updated login/signup to set shared auth state directly in `frontend/src/pages/Login.tsx` and `frontend/src/pages/Signup.tsx`.
+- Post-fix MCP check: bootstrap auth traffic dropped (observed from many repeated calls earlier to only strict-mode double calls), and login/logout/RBAC behavior remained correct.
+
+**Fast Checks Run After Fix**
+- `npm --prefix frontend run build` passed.
+- `npm --prefix backend run typecheck` passed.
+
+**Edited Files**
+- `frontend/src/lib/authState.ts`
+- `frontend/src/App.tsx`
+- `frontend/src/components/AppNav.tsx`
+- `frontend/src/pages/Login.tsx`
+- `frontend/src/pages/Signup.tsx`
+
+**Remaining Risks**
+- `frontend/src/pages/admin/AdminPasswordResetRequests.tsx` is still a static placeholder; full organizer reset-request lifecycle is not implemented.
+- Exploratory runs changed seeded state (new draft event, created+disabled organizer, cancelled participant registration).
+- Shell-side DB reset/full local Playwright suite execution was blocked by sandbox TCP restrictions (`EPERM`), so browser validation was done via Playwright MCP against the running app instance.

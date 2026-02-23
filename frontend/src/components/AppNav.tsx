@@ -1,7 +1,6 @@
-import { useCallback, useEffect } from "react";
 import { Container, Nav, Navbar } from "react-bootstrap";
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { getMe, logout, type AuthUser } from "../lib/auth";
+import { Link, useNavigate } from "react-router-dom";
+import { logout, type AuthUser } from "../lib/auth";
 import { useAuth } from "../lib/authState";
 
 type NavItem = {
@@ -21,32 +20,18 @@ const roleMenus: Record<AuthUser["role"], NavItem[]> = {
     { label: "Dashboard", to: "/organizer" },
     { label: "Create Event", to: "/organizer/events/new" },
     { label: "Ongoing Events", to: "/organizer/ongoing" },
-    { label: "Profile", to: "/organizer" },
+    { label: "Profile", to: "/organizer/profile" },
   ],
   admin: [
     { label: "Dashboard", to: "/admin" },
     { label: "Manage Clubs/Organizers", to: "/admin/organizers" },
-    { label: "Password Reset Requests", to: "/admin" },
+    { label: "Password Reset Requests", to: "/admin/password-reset-requests" },
   ],
 };
 
 export default function AppNav() {
-  const location = useLocation();
   const navigate = useNavigate();
   const { user, loading, setUser } = useAuth();
-
-  const syncNavRole = useCallback(async (_pathname: string) => {
-    try {
-      const me = await getMe();
-      setUser(me);
-    } catch {
-      setUser(null);
-    }
-  }, [setUser]);
-
-  useEffect(() => {
-    void syncNavRole(location.pathname);
-  }, [location.pathname, syncNavRole]);
 
   async function onLogout() {
     try {
@@ -54,7 +39,7 @@ export default function AppNav() {
     } finally {
       setUser(null);
       navigate("/login", { replace: true });
-    } 
+    }
   }
 
   // Compute role menu once the user is known.

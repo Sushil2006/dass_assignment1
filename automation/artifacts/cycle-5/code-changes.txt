@@ -1,0 +1,5 @@
+./frontend/src/App.tsx
+./frontend/src/components/AppNav.tsx
+./frontend/src/lib/authState.ts
+./frontend/src/pages/Login.tsx
+./frontend/src/pages/Signup.tsx

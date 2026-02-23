@@ -1,0 +1,29 @@
+Implemented a targeted QA fix based on spec-to-code audit (assignment section 11.1 admin nav).
+
+**Validated**
+1. Admin/organizer/participant nav-route mappings in frontend routes/menu against `docs/assignment1.pdf`.
+2. Negative RBAC path design for participant access to admin-only route.
+3. Build/type safety after fix:
+   - `npm --prefix frontend run build` ✅
+   - `npm --prefix backend run typecheck` ✅
+
+**Discovered Issue**
+1. `Password Reset Requests` in admin navbar pointed to `/admin` (dashboard), so the intended admin journey had no dedicated route.
+
+**Fixes Applied**
+1. Added dedicated admin password-reset route in `frontend/src/App.tsx:54`.
+2. Corrected admin nav link target in `frontend/src/components/AppNav.tsx:29`.
+3. Added admin page component for that route in `frontend/src/pages/admin/AdminPasswordResetRequests.tsx:1`.
+4. Added smoke coverage (positive + RBAC negative) in `automation/playwright/tests/admin-password-reset-nav.smoke.spec.js:1`.
+
+**Edited Files**
+1. `frontend/src/App.tsx`
+2. `frontend/src/components/AppNav.tsx`
+3. `frontend/src/pages/admin/AdminPasswordResetRequests.tsx`
+4. `automation/playwright/tests/admin-password-reset-nav.smoke.spec.js`
+
+**Execution Constraints / Remaining Risks**
+1. Playwright MCP browser could not launch (`Chromium distribution 'chrome' is not found`).
+2. Local frontend/backend could not be started in this sandbox (`listen EPERM` on ports/pipes).
+3. Local Playwright execution is blocked by sandboxed browser runtime (`sandbox_host_linux.cc ... Operation not permitted`), so end-to-end runtime validation could not be completed here.
+4. The new password-reset page is currently a frontend destination/placeholder; full organizer reset workflow backend is still out of scope unless implemented separately.

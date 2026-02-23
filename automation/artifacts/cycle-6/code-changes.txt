@@ -1,0 +1,3 @@
+./automation/playwright/test-results/.last-run.json
+./automation/playwright/tests/participant-registration-feedback.spec.js
+./frontend/src/pages/participant/EventDetail.tsx

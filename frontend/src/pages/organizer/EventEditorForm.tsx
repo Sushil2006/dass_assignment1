@@ -56,6 +56,7 @@ type EventEditorFormProps = {
   initialValues?: Partial<EventEditorValues>;
   submitLabel?: string;
   busy?: boolean;
+  editPolicy?: "full" | "published-limited";
   onSubmit: (values: EventEditorValues) => Promise<void> | void;
 };
 
@@ -161,8 +162,10 @@ export default function EventEditorForm({
   initialValues,
   submitLabel = "Save Event",
   busy = false,
+  editPolicy = "full",
   onSubmit,
 }: EventEditorFormProps) {
+  const isPublishedLimited = editPolicy === "published-limited";
   const [name, setName] = useState(initialValues?.name ?? "");
   const [description, setDescription] = useState(initialValues?.description ?? "");
   const [type, setType] = useState<EventType>(initialValues?.type ?? "NORMAL");
@@ -396,6 +399,12 @@ export default function EventEditorForm({
   return (
     <Form onSubmit={handleSubmit}>
       {error ? <Alert variant="danger">{error}</Alert> : null}
+      {isPublishedLimited ? (
+        <Alert variant="info">
+          Published events only allow updating description, registration deadline
+          (extension), and registration limit (increase).
+        </Alert>
+      ) : null}
 
       <Row className="g-3">
         <Col md={8}>
@@ -405,6 +414,7 @@ export default function EventEditorForm({
               value={name}
               onChange={(currentEvent) => setName(currentEvent.target.value)}
               placeholder="e.g. AI Workshop 2026"
+              disabled={isPublishedLimited}
               required
             />
           </Form.Group>
@@ -418,6 +428,7 @@ export default function EventEditorForm({
               onChange={(currentEvent) =>
                 setType(currentEvent.target.value as EventType)
               }
+              disabled={isPublishedLimited}
             >
               <option value="NORMAL">NORMAL</option>
               <option value="MERCH">MERCH</option>
@@ -445,6 +456,7 @@ export default function EventEditorForm({
               value={tagsText}
               onChange={(currentEvent) => setTagsText(currentEvent.target.value)}
               placeholder="tech, workshop, beginner"
+              disabled={isPublishedLimited}
             />
           </Form.Group>
         </Col>
@@ -456,6 +468,7 @@ export default function EventEditorForm({
               value={eligibility}
               onChange={(currentEvent) => setEligibility(currentEvent.target.value)}
               placeholder="all / iiit / non-iiit"
+              disabled={isPublishedLimited}
               required
             />
           </Form.Group>
@@ -470,6 +483,7 @@ export default function EventEditorForm({
               step="0.01"
               value={regFee}
               onChange={(currentEvent) => setRegFee(currentEvent.target.value)}
+              disabled={isPublishedLimited}
               required
             />
           </Form.Group>
@@ -508,6 +522,7 @@ export default function EventEditorForm({
               type="datetime-local"
               value={startDate}
               onChange={(currentEvent) => setStartDate(currentEvent.target.value)}
+              disabled={isPublishedLimited}
               required
             />
           </Form.Group>
@@ -520,6 +535,7 @@ export default function EventEditorForm({
               type="datetime-local"
               value={endDate}
               onChange={(currentEvent) => setEndDate(currentEvent.target.value)}
+              disabled={isPublishedLimited}
               required
             />
           </Form.Group>
@@ -558,6 +574,7 @@ export default function EventEditorForm({
                                     key: currentEvent.target.value,
                                   })
                                 }
+                                disabled={isPublishedLimited}
                                 required
                               />
                             </Form.Group>
@@ -573,6 +590,7 @@ export default function EventEditorForm({
                                     label: currentEvent.target.value,
                                   })
                                 }
+                                disabled={isPublishedLimited}
                                 required
                               />
                             </Form.Group>
@@ -588,6 +606,7 @@ export default function EventEditorForm({
                                     type: currentEvent.target.value as NormalFormFieldType,
                                   })
                                 }
+                                disabled={isPublishedLimited}
                               >
                                 {normalFieldTypes.map((fieldType) => (
                                   <option key={fieldType} value={fieldType}>
@@ -604,6 +623,7 @@ export default function EventEditorForm({
                               className="mt-4"
                               label="Required"
                               checked={field.required}
+                              disabled={isPublishedLimited}
                               onChange={(currentEvent) =>
                                 updateNormalField(index, {
                                   required: currentEvent.target.checked,
@@ -616,7 +636,7 @@ export default function EventEditorForm({
                             <Button
                               variant="outline-danger"
                               type="button"
-                              disabled={normalFields.length <= 1}
+                              disabled={isPublishedLimited || normalFields.length <= 1}
                               onClick={() => removeNormalField(index)}
                             >
                               Remove
@@ -635,6 +655,7 @@ export default function EventEditorForm({
                                     })
                                   }
                                   placeholder="option1, option2"
+                                  disabled={isPublishedLimited}
                                   required
                                 />
                               </Form.Group>
@@ -646,7 +667,12 @@ export default function EventEditorForm({
                   );
                 })}
 
-                <Button variant="outline-primary" type="button" onClick={addNormalField}>
+                <Button
+                  variant="outline-primary"
+                  type="button"
+                  disabled={isPublishedLimited}
+                  onClick={addNormalField}
+                >
                   Add Field
                 </Button>
               </Card.Body>
@@ -672,6 +698,7 @@ export default function EventEditorForm({
                         onChange={(currentEvent) =>
                           setPerParticipantLimit(currentEvent.target.value)
                         }
+                        disabled={isPublishedLimited}
                         required
                       />
                     </Form.Group>
@@ -692,6 +719,7 @@ export default function EventEditorForm({
                                   sku: currentEvent.target.value,
                                 })
                               }
+                              disabled={isPublishedLimited}
                               required
                             />
                           </Form.Group>
@@ -707,6 +735,7 @@ export default function EventEditorForm({
                                   label: currentEvent.target.value,
                                 })
                               }
+                              disabled={isPublishedLimited}
                               required
                             />
                           </Form.Group>
@@ -725,6 +754,7 @@ export default function EventEditorForm({
                                   stock: currentEvent.target.value,
                                 })
                               }
+                              disabled={isPublishedLimited}
                               required
                             />
                           </Form.Group>
@@ -742,6 +772,7 @@ export default function EventEditorForm({
                                   priceDelta: currentEvent.target.value,
                                 })
                               }
+                              disabled={isPublishedLimited}
                             />
                           </Form.Group>
                         </Col>
@@ -750,7 +781,7 @@ export default function EventEditorForm({
                           <Button
                             variant="outline-danger"
                             type="button"
-                            disabled={merchVariants.length <= 1}
+                            disabled={isPublishedLimited || merchVariants.length <= 1}
                             onClick={() => removeMerchVariant(index)}
                           >
                             Remove
@@ -761,7 +792,12 @@ export default function EventEditorForm({
                   </Card>
                 ))}
 
-                <Button variant="outline-primary" type="button" onClick={addMerchVariant}>
+                <Button
+                  variant="outline-primary"
+                  type="button"
+                  disabled={isPublishedLimited}
+                  onClick={addMerchVariant}
+                >
                   Add Variant
                 </Button>
               </Card.Body>
