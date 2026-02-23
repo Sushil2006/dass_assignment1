@@ -1,0 +1,11 @@
+cycle=2
+status=pass
+sweep_mode=smoke
+duration_seconds=759
+started_at=2026-02-23 11:04:10
+ended_at=2026-02-23 11:16:49
+playwright_runs=1
+fix_attempts_used=0
+pw_test_targets=auto-smoke
+effective_test_targets=auto-smoke
+pw_projects=chromium-desktop

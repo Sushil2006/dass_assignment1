@@ -2,15 +2,11 @@ import { useState } from "react";
 import { Alert, Card, Container, ListGroup } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../../lib/api";
+import { readApiErrorMessage } from "../../lib/errors";
 import EventEditorForm, { type EventEditorValues } from "./EventEditorForm";
 
 async function readErrorMessage(res: Response): Promise<string> {
-  try {
-    const data = await res.json();
-    return data?.error?.message || "Request failed";
-  } catch {
-    return "Request failed";
-  }
+  return readApiErrorMessage(res);
 }
 
 export default function CreateEventWizard() {

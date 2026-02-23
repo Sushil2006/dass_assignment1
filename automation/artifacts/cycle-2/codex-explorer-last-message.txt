@@ -1,0 +1,37 @@
+**Validated Flows**
+- Participant:
+  - Login, dashboard/nav access, RBAC redirect from `/admin` to `/participant`.
+  - Browse events load, open event detail, submit normal registration, ticket generation, ticket detail open.
+  - Negative: invalid ticket ID shows `Ticket not found`.
+  - Organizer follow/unfollow and `followed clubs only` filter boundary (empty when unfollowed).
+  - Profile password change negatives: wrong current password and confirm mismatch both correctly rejected.
+- Organizer:
+  - Login and role nav.
+  - RBAC redirect from participant route back to organizer dashboard.
+  - Profile update negative: invalid Discord webhook URL rejected with `Invalid request`.
+- Admin:
+  - Login and organizer management page.
+  - Create organizer account, disable organizer account.
+  - Negative: disabled organizer login blocked with `Organizer account is disabled`.
+
+**Discovered Issue + Fix**
+- Issue: Browser QA showed password-form DOM warnings on participant profile change-password form (missing autocomplete/username context).
+- Fix applied:
+  - Added `autocomplete` attributes (`current-password`, `new-password`) and hidden `username` context field in `ChangePassword`.
+  - Passed participant email into `ChangePassword`.
+- Files:
+  - `frontend/src/pages/common/ChangePassword.tsx`
+  - `frontend/src/pages/participant/Profile.tsx`
+
+**Post-fix Checks**
+- `npm --prefix frontend run build` ✅
+- `npm --prefix backend run typecheck` ✅
+
+**Edited Files**
+- `frontend/src/pages/common/ChangePassword.tsx:14`
+- `frontend/src/pages/participant/Profile.tsx:320`
+
+**Remaining Risks**
+- Full local Playwright CLI suite could not be executed in this sandbox due Chromium launch failure (`sandbox_host_linux.cc ... Operation not permitted`), so only MCP-browser exploratory coverage was run.
+- High-variance paths not deeply exercised in this pass: merch stock depletion edge cases, file-upload field registration, and full admin delete/archive lifecycle permutations.
+- Repo has pre-existing unrelated dirty changes/artifacts outside this fix; I did not modify those intentionally.

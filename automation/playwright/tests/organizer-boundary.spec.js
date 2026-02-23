@@ -33,7 +33,7 @@ test('organizer cannot create event when end date is before start date', async (
   await page.getByLabel('End Date').fill(futureDateTimeLocal(3, 10));
 
   await page.getByRole('button', { name: /Create draft event/i }).click();
-  await expect(page.getByText(/Invalid request/i)).toBeVisible();
+  await expect(page.getByText(/endDate must be after startDate/i)).toBeVisible();
   await expect(page.getByText(/Draft event created successfully/i)).toHaveCount(0);
 
   await logout(page);

@@ -12,6 +12,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import EventCard, { type EventCardData } from "../../components/EventCard";
 import { apiFetch } from "../../lib/api";
+import { readApiErrorMessage } from "../../lib/errors";
 
 type EventsResponse = {
   events?: EventCardData[];
@@ -41,12 +42,7 @@ const defaultFilters: BrowseFilters = {
 };
 
 async function readErrorMessage(res: Response): Promise<string> {
-  try {
-    const data = await res.json();
-    return data?.error?.message || "Request failed";
-  } catch {
-    return "Request failed";
-  }
+  return readApiErrorMessage(res);
 }
 
 function buildSearchParams(filters: BrowseFilters): string {
@@ -92,6 +88,7 @@ export default function BrowseEvents() {
       setRecommendedEvents(data.recommendedEvents ?? []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load events");
+      setEvents([]);
       setRecommendedEvents([]);
     } finally {
       setLoadingEvents(false);
@@ -122,6 +119,10 @@ export default function BrowseEvents() {
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (filters.from && filters.to && filters.from > filters.to) {
+      setError("to must be greater than or equal to from");
+      return;
+    }
     await loadEvents(filters);
   }
 

@@ -1,0 +1,2 @@
+./automation/playwright/tests/participant-browse-invalid-date-range.spec.js
+./frontend/src/pages/participant/BrowseEvents.tsx

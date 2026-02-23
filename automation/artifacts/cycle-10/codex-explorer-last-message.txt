@@ -1,0 +1,27 @@
+**Validated Flows (Playwright MCP)**
+- Auth/RBAC: invalid login error, unauthenticated redirect to `/login`, role-guard redirects (`admin` blocked from participant pages and vice versa).
+- Admin journey: login, organizer creation, generated credentials display, organizer disable action, disabled organizer login blocked.
+- Organizer journey: dashboard navigation, published-event edit modal constraints, reg-limit decrease rejected, reg-limit increase accepted.
+- Participant journey: browse filters, invalid date-range error path, event detail registration, ticket open, duplicate-active-registration blocked, cancel + re-register flow, profile password mismatch validation.
+
+**Defect Found and Fixed**
+- Defect: On browse search failure (example: invalid date range), stale “All Events” cards stayed visible while error was shown.
+- Fix: Clear event list on load failure in `frontend/src/pages/participant/BrowseEvents.tsx:91`.
+
+**Regression Test Added**
+- Added `automation/playwright/tests/participant-browse-invalid-date-range.spec.js:1` to assert:
+  - invalid range shows backend validation message
+  - stale event card is not shown
+  - “No events match current filters.” appears
+
+**Local Checks (after fix)**
+- `npm --prefix frontend run build` passed.
+- `npm --prefix backend run typecheck` passed.
+
+**Edited Files**
+- `frontend/src/pages/participant/BrowseEvents.tsx`
+- `automation/playwright/tests/participant-browse-invalid-date-range.spec.js`
+
+**Remaining Risks**
+- Repository Playwright CLI runs in this sandbox fail at browser launch (`sandbox_host_linux.cc ... Operation not permitted`), so the new spec file could not be executed here via CLI.
+- `AdminPasswordResetRequests` appears static (`frontend/src/pages/admin/AdminPasswordResetRequests.tsx`) with no implemented organizer reset-request workflow, which is a spec-risk area.

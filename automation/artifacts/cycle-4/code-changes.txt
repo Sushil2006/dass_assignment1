@@ -1,0 +1,2 @@
+./automation/playwright/test-results/.last-run.json
+./automation/playwright/tests/admin-organizer-disable-login-block.spec.js

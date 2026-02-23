@@ -317,7 +317,7 @@ export default function Profile() {
               </Card.Body>
             </Card>
 
-            <ChangePassword />
+            <ChangePassword username={email} />
           </Col>
         </Row>
       )}

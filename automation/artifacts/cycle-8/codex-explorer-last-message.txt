@@ -1,0 +1,37 @@
+**Validated Flows (MCP Browser)**
+- Participant:
+  - Login/logout, RBAC redirect (`/admin` redirected to `/participant`).
+  - Browse events search/filter negative case (`zzzznotfoundcase` -> “No events match current filters”).
+  - Event registration (normal event), ticket generation, cancel participation, re-register path.
+  - Profile onboarding save (including empty-followed-organizers case), change-password mismatch validation.
+  - New IIIT signup (`@iiit.ac.in`) correctly classified as `participantType=iiit` on profile.
+- Organizer:
+  - Login, dashboard/nav, create draft event, publish event.
+  - Invalid event date boundary rejected (`endDate must be after startDate`).
+  - Published-edit modal behavior checked.
+- Admin:
+  - Login, manage organizers page.
+  - Blank organizer name validation.
+  - Organizer provisioning (generated credentials), immediate organizer login.
+  - Disable organizer and verify disabled organizer login is blocked (`Organizer account is disabled`).
+
+**Discovered Issues**
+- No reproducible product defect found in the exercised flows.
+- Per your constraint for “no bug found”, I added one meaningful edge Playwright test.
+
+**What I Changed**
+- Added test: `automation/playwright/tests/participant-iiit-signup-profile.spec.js:1`
+  - Covers IIIT-domain signup classification and onboarding completion persistence.
+
+**Checks After Change**
+- `npm --prefix frontend run build` passed.
+- `npm --prefix backend run typecheck` passed.
+- Attempted to run the new local Playwright test, but this sandbox cannot launch Chromium (`sandbox_host_linux.cc` “Operation not permitted”). MCP browser validation still worked.
+
+**Edited Files**
+- `automation/playwright/tests/participant-iiit-signup-profile.spec.js`
+
+**Remaining Risks**
+- Local Playwright CLI execution is blocked by sandbox browser-launch restrictions, so the new test is not locally executed here.
+- Manual exploratory actions changed runtime DB state (created users/events, disabled organizer), which can affect subsequent non-reset runs.
+- Repository already had substantial unrelated dirty/untracked changes before this pass; I left them untouched.

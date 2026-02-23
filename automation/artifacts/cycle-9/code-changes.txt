@@ -1,0 +1,2 @@
+./automation/playwright/test-results/.last-run.json
+./automation/playwright/tests/organizer-published-reg-limit-decrease.spec.js

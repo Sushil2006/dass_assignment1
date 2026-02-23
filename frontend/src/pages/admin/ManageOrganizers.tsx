@@ -13,6 +13,7 @@ import {
 } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../../lib/api";
+import { readApiErrorMessage } from "../../lib/errors";
 
 type OrganizerRow = {
   id: string;
@@ -41,12 +42,7 @@ type CredentialsState = {
 };
 
 async function readErrorMessage(res: Response): Promise<string> {
-  try {
-    const data = await res.json();
-    return data?.error?.message || "Request failed";
-  } catch {
-    return "Request failed";
-  }
+  return readApiErrorMessage(res);
 }
 
 export default function ManageOrganizers() {
@@ -86,14 +82,19 @@ export default function ManageOrganizers() {
 
   async function onCreateOrganizer(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setSubmitting(true);
     setError(null);
     setSuccess(null);
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setError("Organizer name is required");
+      return;
+    }
+    setSubmitting(true);
 
     try {
       const res = await apiFetch("/api/admin/organizers", {
         method: "POST",
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify({ name: trimmedName }),
       });
 
       if (!res.ok) throw new Error(await readErrorMessage(res));

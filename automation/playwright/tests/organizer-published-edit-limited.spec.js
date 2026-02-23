@@ -6,6 +6,7 @@ test('organizer can update published event description with limited payload', as
     process.env.TEST_ORGANIZER_EMAIL || 'organizer+overnight@example.com';
   const organizerPassword =
     process.env.TEST_ORGANIZER_PASSWORD || 'Organizer#123';
+  const seededPublishedEventName = 'Seeded Overnight Published Event';
 
   await login(page, organizerEmail, organizerPassword);
   await expect(page).toHaveURL(/\/organizer/);
@@ -13,7 +14,14 @@ test('organizer can update published event description with limited payload', as
   await page.goto('/organizer');
   await expect(page.locator('body')).toContainText('Organizer Dashboard');
 
-  await page.getByRole('button', { name: 'Edit' }).first().click();
+  const publishedEventCard = page
+    .locator('.card.h-100.border')
+    .filter({ hasText: seededPublishedEventName })
+    .filter({ has: page.getByRole('button', { name: 'Edit' }) })
+    .first();
+  await expect(publishedEventCard).toBeVisible();
+  await expect(publishedEventCard).toContainText('PUBLISHED');
+  await publishedEventCard.getByRole('button', { name: 'Edit' }).click();
 
   await expect(page.getByText(/Published events only allow updating description/i)).toBeVisible();
   await expect(page.getByLabel('Event Name')).toBeDisabled();

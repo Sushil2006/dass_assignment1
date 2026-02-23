@@ -1,0 +1,23 @@
+**Validated Flows (Playwright MCP)**
+- `participant`: login/logout, dashboard nav, browse search/no-result filtering, organizer detail, event registration success (ticket generated), my-events visibility, profile password-change negative paths (mismatch/current-password-wrong), RBAC redirect from `/admin/*`.
+- `organizer`: login/logout, dashboard/nav (`/organizer`, `/organizer/ongoing`, `/organizer/profile`), create-event boundary (`regDeadline > startDate` correctly blocked with server error).
+- `admin`: login/logout, organizer management list/create/disable/delete, password-reset-requests page routing, RBAC checks.
+- Negative/boundary interactions executed: invalid login, whitespace organizer name, invalid event date ordering, password mismatch, wrong current password, participant forbidden from admin route.
+
+**Discovered Defect + Fix**
+1. Defect: Admin creating organizer with whitespace-only name showed poor/raw validation behavior.
+- Repro: Admin → Manage Organizers → name=`"   "` → Create.
+- Before: backend-origin schema text surfaced.
+- Fix: client-side trimmed-name guard with explicit message and early return.
+- Change: `frontend/src/pages/admin/ManageOrganizers.tsx:83`
+
+**Local Checks After Fix**
+- `npm --prefix frontend run build` ✅
+- `npm --prefix backend run typecheck` ✅
+
+**Edited Files**
+- `frontend/src/pages/admin/ManageOrganizers.tsx`
+
+**Remaining Risks**
+- This pass was exploratory/manual (not a full Playwright suite run), so untested combinations still exist (especially deeper merch/payment/advanced-feature branches).
+- Workspace has many unrelated pre-existing modified/untracked files; I only changed the file listed above.

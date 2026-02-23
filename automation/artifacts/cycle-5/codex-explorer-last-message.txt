@@ -1,0 +1,38 @@
+**Validated Flows (MCP Browser)**
+- `admin`:
+  - Login redirect to `/admin`.
+  - RBAC guard: direct `/participant` navigation redirected back to `/admin`.
+  - `/admin/organizers`: create organizer credentials flow worked.
+  - `/admin/password-reset-requests`: route accessible and rendered.
+- `organizer`:
+  - Login to `/organizer`.
+  - Dashboard event cards/actions visible.
+  - Published-event edit boundary: decreasing `regLimit` returned expected validation error (`Published event registration limit can only increase`).
+- `participant`:
+  - Login redirect to `/participant`.
+  - RBAC guard: direct `/admin` navigation redirected back to `/participant`.
+  - Browse filters: invalid date range (`from > to`) surfaced deterministic API validation error.
+  - Event registration (NORMAL) succeeded; ticket generated and ticket page rendered.
+  - Duplicate active participation correctly blocked with “already have an active participation”.
+  - Cancel participation moved record to Cancelled/Rejected tab.
+  - Organizer unfollow reflected in browse filter (`followed clubs only` returned no events).
+
+**Discovered Issues**
+- No functional product defect was found in the exercised scope.
+- Environment issue: local Playwright CLI (`npm --prefix automation/playwright test`) cannot launch Chromium in this sandbox (`sandbox_host_linux.cc ... Operation not permitted`). MCP browser testing still worked.
+
+**Changes Made**
+- Added one new meaningful edge-case test (as requested when no defect is found):
+  - `automation/playwright/tests/participant-cancel-reregister.spec.js`
+  - Covers: participant registers, cancels, then re-registers for the same event (using a fresh organizer-created published event for determinism).
+
+**Local Checks**
+- `npm --prefix frontend run build` ✅
+- `npm --prefix backend run typecheck` ✅
+
+**Edited Files**
+- `automation/playwright/tests/participant-cancel-reregister.spec.js`
+
+**Remaining Risks**
+- Could not execute the repository Playwright suite in this sandbox due browser-launch restriction, so the new spec wasn’t run via CLI here.
+- Advanced organizer password-reset workflow appears stubbed in UI (`/admin/password-reset-requests`), which may be fine if not selected for Tier B, but remains a scope/compliance risk if expected.

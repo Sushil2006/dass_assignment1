@@ -15,6 +15,7 @@ test('organizer cannot complete a non-ongoing published event', async ({ page })
     process.env.TEST_ORGANIZER_EMAIL || 'organizer+overnight@example.com';
   const organizerPassword =
     process.env.TEST_ORGANIZER_PASSWORD || 'Organizer#123';
+  const apiBaseUrl = process.env.API_URL || 'http://127.0.0.1:4100';
 
   await login(page, organizerEmail, organizerPassword);
   await expect(page).toHaveURL(/\/organizer/);
@@ -48,7 +49,7 @@ test('organizer cannot complete a non-ongoing published event', async ({ page })
   expect(eventId).toBeTruthy();
 
   const publishResponse = await page.request.patch(
-    `/api/events/organizer/${eventId}/status`,
+    `${apiBaseUrl}/api/events/organizer/${eventId}/status`,
     {
       data: { status: 'PUBLISHED' },
     }
@@ -65,7 +66,7 @@ test('organizer cannot complete a non-ongoing published event', async ({ page })
   await expect(lifecycleCard.getByRole('button', { name: 'Complete' })).toHaveCount(0);
 
   const completeResponse = await page.request.patch(
-    `/api/events/organizer/${eventId}/status`,
+    `${apiBaseUrl}/api/events/organizer/${eventId}/status`,
     {
       data: { status: 'COMPLETED' },
     }
@@ -74,7 +75,9 @@ test('organizer cannot complete a non-ongoing published event', async ({ page })
   const completeBody = await completeResponse.json();
   expect(completeBody?.error?.message).toMatch(/ongoing/i);
 
-  const deleteResponse = await page.request.delete(`/api/events/organizer/${eventId}`);
+  const deleteResponse = await page.request.delete(
+    `${apiBaseUrl}/api/events/organizer/${eventId}`
+  );
   expect(deleteResponse.ok()).toBeTruthy();
 
   await logout(page);

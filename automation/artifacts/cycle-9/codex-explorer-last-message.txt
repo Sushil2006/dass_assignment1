@@ -1,0 +1,43 @@
+**Validated Flows (Playwright MCP, deterministic checks)**
+- `participant` auth:
+  - Invalid login shows `Invalid credentials`.
+  - Valid login redirects to `/participant`.
+  - RBAC guard: visiting `/organizer` as participant redirects back to participant area.
+- `participant` journeys:
+  - Browse events filter behavior, including `followed clubs only` with zero follows -> empty result.
+  - Event detail registration for normal event with required field.
+  - Ticket generation and ticket-detail access (QR payload present).
+  - My Events tab transitions: upcoming -> cancelled/rejected after cancellation.
+  - Organizer follow/unfollow from Clubs/Organizers page.
+  - Profile read-only fields (email/participant type) + password mismatch validation.
+- `organizer` journeys:
+  - Organizer login and dashboard/event detail visibility.
+  - Published event edit restrictions UI (only limited fields editable).
+  - Boundary check: decreasing published `Reg Limit` is rejected (`registration limit can only increase`).
+  - Draft creation boundary: invalid date ordering rejected (`endDate must be after startDate`).
+  - MERCH draft creation with valid payload succeeds.
+- `admin` journeys:
+  - Admin login + organizer management.
+  - Create organizer returns generated credentials.
+  - Newly created organizer can log in immediately.
+  - Disable organizer blocks login (`Organizer account is disabled`).
+
+**Discovered Issues**
+- No deterministic product defect found in the explored role flows.
+- Environment limitation: local Playwright CLI browser launch fails in this sandbox (`sandbox_host_linux.cc`), so I validated via MCP browser and added a regression test file without local CLI execution.
+
+**Changes Made**
+- Added one new meaningful edge-case Playwright test (regular suite, non-smoke):
+  - `automation/playwright/tests/organizer-published-reg-limit-decrease.spec.js`
+
+**Checks Run**
+- `npm --prefix frontend run build` ✅
+- `npm --prefix backend run typecheck` ✅
+- `npm --prefix automation/playwright test -- --project=chromium-desktop organizer-published-reg-limit-decrease.spec.js` ❌ (sandbox browser-launch restriction, not app failure)
+
+**Edited Files**
+- `automation/playwright/tests/organizer-published-reg-limit-decrease.spec.js`
+
+**Remaining Risks**
+- Full local Playwright execution is blocked by sandbox browser-launch constraints in this session.
+- DB runtime state was exercised (new organizer/event created/disabled) during exploratory testing; overnight reset scripts should normalize this, but current live state is not pristine until reset.

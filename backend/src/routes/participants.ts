@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { ObjectId } from "mongodb";
+import { type Collection, ObjectId } from "mongodb";
 import { z } from "zod";
 import { getDb } from "../db/client";
 import { collections } from "../db/collections";
@@ -619,9 +619,40 @@ function canRegisterNow(event: StoredEventDoc, now: Date): boolean {
   return true;
 }
 
+async function canRegisterForEventDetail(params: {
+  event: StoredEventDoc;
+  participations: Collection<StoredParticipationDoc>;
+  now: Date;
+}): Promise<boolean> {
+  if (!canRegisterNow(params.event, params.now)) {
+    return false;
+  }
+
+  const activeCount = await params.participations.countDocuments({
+    eventId: params.event._id,
+    status: { $nin: ["cancelled", "rejected"] },
+  });
+
+  if (activeCount >= params.event.regLimit) {
+    return false;
+  }
+
+  if (params.event.type === "MERCH") {
+    const merchConfig = params.event.merchConfig;
+    if (!merchConfig) return false;
+    if (merchConfig.totalStock <= 0) return false;
+    if (!merchConfig.variants.some((variant) => variant.stock > 0)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function toParticipantEventResponse(
   event: StoredEventDoc,
   organizerName?: string,
+  canRegisterOverride?: boolean,
 ) {
   return {
     id: event._id.toString(),
@@ -639,7 +670,10 @@ function toParticipantEventResponse(
     organizerName: organizerName ?? null,
     status: event.status,
     displayStatus: deriveDisplayStatus(event, new Date()),
-    canRegister: canRegisterNow(event, new Date()),
+    canRegister:
+      canRegisterOverride !== undefined
+        ? canRegisterOverride
+        : canRegisterNow(event, new Date()),
     normalForm: event.type === "NORMAL" ? event.normalForm : undefined,
     merchConfig: event.type === "MERCH" ? event.merchConfig : undefined,
   };
@@ -841,9 +875,14 @@ participantsRouter.get(
         role: "organizer",
       });
       const organizerName = organizer?.name;
+      const canRegister = await canRegisterForEventDetail({
+        event,
+        participations,
+        now: new Date(),
+      });
 
       return res.json({
-        event: toParticipantEventResponse(event, organizerName),
+        event: toParticipantEventResponse(event, organizerName, canRegister),
         myParticipation: latestParticipation
           ? toParticipationItemResponse(latestParticipation, event, organizerName)
           : null,

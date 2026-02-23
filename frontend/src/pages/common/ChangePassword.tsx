@@ -11,7 +11,11 @@ async function readErrorMessage(res: Response): Promise<string> {
   }
 }
 
-export default function ChangePassword() {
+type ChangePasswordProps = {
+  username?: string;
+};
+
+export default function ChangePassword({ username = "" }: ChangePasswordProps) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -64,10 +68,23 @@ export default function ChangePassword() {
         {success ? <Alert variant="success">{success}</Alert> : null}
 
         <Form onSubmit={onSubmit}>
+          {/* Keep username context for password-manager/autocomplete heuristics. */}
+          <Form.Control
+            type="email"
+            name="username"
+            autoComplete="username"
+            value={username}
+            readOnly
+            className="d-none"
+            tabIndex={-1}
+            aria-hidden
+          />
+
           <Form.Group className="mb-3" controlId="change-current-password">
             <Form.Label>Current Password</Form.Label>
             <Form.Control
               type="password"
+              autoComplete="current-password"
               value={currentPassword}
               onChange={(currentEvent) => setCurrentPassword(currentEvent.target.value)}
               required
@@ -78,6 +95,7 @@ export default function ChangePassword() {
             <Form.Label>New Password</Form.Label>
             <Form.Control
               type="password"
+              autoComplete="new-password"
               value={newPassword}
               onChange={(currentEvent) => setNewPassword(currentEvent.target.value)}
               minLength={8}
@@ -89,6 +107,7 @@ export default function ChangePassword() {
             <Form.Label>Confirm New Password</Form.Label>
             <Form.Control
               type="password"
+              autoComplete="new-password"
               value={confirmPassword}
               onChange={(currentEvent) => setConfirmPassword(currentEvent.target.value)}
               minLength={8}

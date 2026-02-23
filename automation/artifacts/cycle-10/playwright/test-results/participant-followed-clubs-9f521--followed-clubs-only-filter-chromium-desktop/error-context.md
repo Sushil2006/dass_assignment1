@@ -1,0 +1,252 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - generic [ref=e4]:
+      - link "DASS" [ref=e5] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - link "Dashboard" [ref=e8] [cursor=pointer]:
+            - /url: /participant
+          - link "Browse Events" [ref=e9] [cursor=pointer]:
+            - /url: /participant/events
+          - link "Clubs/Organizers" [ref=e10] [cursor=pointer]:
+            - /url: /participant/organizers
+          - link "My Events" [ref=e11] [cursor=pointer]:
+            - /url: /participant/my-events
+          - link "Profile" [ref=e12] [cursor=pointer]:
+            - /url: /participant/profile
+        - button "Logout" [ref=e14] [cursor=pointer]
+  - generic [ref=e15]:
+    - generic [ref=e16]:
+      - heading "Browse Events" [level=1] [ref=e17]
+      - paragraph [ref=e18]: Search, filter, and explore ongoing campus activity.
+    - generic [ref=e22]:
+      - generic [ref=e24]:
+        - generic [ref=e25]: Search
+        - textbox "Search" [ref=e26]:
+          - /placeholder: event or organizer name
+      - generic [ref=e28]:
+        - generic [ref=e29]: Organizer
+        - textbox "Organizer" [ref=e30]:
+          - /placeholder: name
+      - generic [ref=e32]:
+        - generic [ref=e33]: Type
+        - combobox "Type" [ref=e34]:
+          - option "All" [selected]
+          - option "NORMAL"
+          - option "MERCH"
+      - generic [ref=e36]:
+        - generic [ref=e37]: Eligibility
+        - textbox "Eligibility" [ref=e38]:
+          - /placeholder: all / iiit / ...
+      - generic [ref=e40]:
+        - generic [ref=e41]: Status
+        - combobox "Status" [ref=e42]:
+          - option "All" [selected]
+          - option "PUBLISHED"
+          - option "ONGOING"
+          - option "CLOSED"
+          - option "COMPLETED"
+      - generic [ref=e44]:
+        - generic [ref=e45]: From
+        - textbox "From" [ref=e46]
+      - generic [ref=e48]:
+        - generic [ref=e49]: To
+        - textbox "To" [ref=e50]
+      - generic [ref=e53]:
+        - checkbox "followed clubs only" [ref=e54]
+        - generic [ref=e55]: followed clubs only
+      - generic [ref=e56]:
+        - button "Reset" [ref=e57] [cursor=pointer]
+        - button "Search" [ref=e58] [cursor=pointer]
+    - generic [ref=e60]:
+      - generic [ref=e61]: Recommended For You
+      - generic [ref=e62]: No personalized recommendations yet.
+    - generic [ref=e64]:
+      - generic [ref=e65]: Trending (last 24h)
+      - generic [ref=e66]:
+        - generic [ref=e69]:
+          - generic [ref=e70]:
+            - generic [ref=e71]: NORMAL
+            - generic [ref=e72]: PUBLISHED
+            - generic [ref=e73]: 1 regs (24h)
+          - generic [ref=e74]: Cancel ReRegister 1771831806287
+          - paragraph [ref=e75]: Event for cancellation and re-registration boundary coverage
+          - generic [ref=e76]:
+            - generic [ref=e77]:
+              - strong [ref=e78]: "Starts:"
+              - text: 2/28/2026, 11:00:00 AM
+            - generic [ref=e79]:
+              - strong [ref=e80]: "Ends:"
+              - text: 3/1/2026, 11:00:00 AM
+            - generic [ref=e81]:
+              - strong [ref=e82]: "Eligibility:"
+              - text: all
+            - generic [ref=e83]:
+              - strong [ref=e84]: "Fee:"
+              - text: "0"
+          - generic [ref=e85]:
+            - generic [ref=e86]: qa
+            - generic [ref=e87]: boundary
+          - button "View details" [ref=e88] [cursor=pointer]
+        - generic [ref=e91]:
+          - generic [ref=e92]:
+            - generic [ref=e93]: NORMAL
+            - generic [ref=e94]: PUBLISHED
+            - generic [ref=e95]: 1 regs (24h)
+          - generic [ref=e96]: Cancel ReRegister 1771832174421
+          - paragraph [ref=e97]: Event for cancellation and re-registration boundary coverage
+          - generic [ref=e98]:
+            - generic [ref=e99]:
+              - strong [ref=e100]: "Starts:"
+              - text: 2/28/2026, 11:00:00 AM
+            - generic [ref=e101]:
+              - strong [ref=e102]: "Ends:"
+              - text: 3/1/2026, 11:00:00 AM
+            - generic [ref=e103]:
+              - strong [ref=e104]: "Eligibility:"
+              - text: all
+            - generic [ref=e105]:
+              - strong [ref=e106]: "Fee:"
+              - text: "0"
+          - generic [ref=e107]:
+            - generic [ref=e108]: qa
+            - generic [ref=e109]: boundary
+          - button "View details" [ref=e110] [cursor=pointer]
+    - generic [ref=e112]:
+      - generic [ref=e113]: All Events
+      - generic [ref=e114]:
+        - generic [ref=e117]:
+          - generic [ref=e118]:
+            - generic [ref=e119]: NORMAL
+            - generic [ref=e120]: PUBLISHED
+          - generic [ref=e121]: Status Boundary 1771832169250
+          - paragraph [ref=e122]: Status transition boundary regression
+          - generic [ref=e123]:
+            - generic [ref=e124]:
+              - strong [ref=e125]: "Starts:"
+              - text: 2/27/2026, 10:00:00 AM
+            - generic [ref=e126]:
+              - strong [ref=e127]: "Ends:"
+              - text: 2/28/2026, 10:00:00 AM
+            - generic [ref=e128]:
+              - strong [ref=e129]: "Organizer:"
+              - text: Overnight Organizer
+            - generic [ref=e130]:
+              - strong [ref=e131]: "Eligibility:"
+              - text: all
+            - generic [ref=e132]:
+              - strong [ref=e133]: "Fee:"
+              - text: "0"
+          - generic [ref=e134]:
+            - generic [ref=e135]: qa
+            - generic [ref=e136]: status
+          - button "View details" [ref=e137] [cursor=pointer]
+        - generic [ref=e140]:
+          - generic [ref=e141]:
+            - generic [ref=e142]: NORMAL
+            - generic [ref=e143]: PUBLISHED
+          - generic [ref=e144]: Status Boundary 1771831804464
+          - paragraph [ref=e145]: Status transition boundary regression
+          - generic [ref=e146]:
+            - generic [ref=e147]:
+              - strong [ref=e148]: "Starts:"
+              - text: 2/27/2026, 10:00:00 AM
+            - generic [ref=e149]:
+              - strong [ref=e150]: "Ends:"
+              - text: 2/28/2026, 10:00:00 AM
+            - generic [ref=e151]:
+              - strong [ref=e152]: "Organizer:"
+              - text: Overnight Organizer
+            - generic [ref=e153]:
+              - strong [ref=e154]: "Eligibility:"
+              - text: all
+            - generic [ref=e155]:
+              - strong [ref=e156]: "Fee:"
+              - text: "0"
+          - generic [ref=e157]:
+            - generic [ref=e158]: qa
+            - generic [ref=e159]: status
+          - button "View details" [ref=e160] [cursor=pointer]
+        - generic [ref=e163]:
+          - generic [ref=e164]:
+            - generic [ref=e165]: NORMAL
+            - generic [ref=e166]: PUBLISHED
+          - generic [ref=e167]: Cancel ReRegister 1771832174421
+          - paragraph [ref=e168]: Event for cancellation and re-registration boundary coverage
+          - generic [ref=e169]:
+            - generic [ref=e170]:
+              - strong [ref=e171]: "Starts:"
+              - text: 2/28/2026, 11:00:00 AM
+            - generic [ref=e172]:
+              - strong [ref=e173]: "Ends:"
+              - text: 3/1/2026, 11:00:00 AM
+            - generic [ref=e174]:
+              - strong [ref=e175]: "Organizer:"
+              - text: Overnight Organizer
+            - generic [ref=e176]:
+              - strong [ref=e177]: "Eligibility:"
+              - text: all
+            - generic [ref=e178]:
+              - strong [ref=e179]: "Fee:"
+              - text: "0"
+          - generic [ref=e180]:
+            - generic [ref=e181]: qa
+            - generic [ref=e182]: boundary
+          - button "View details" [ref=e183] [cursor=pointer]
+        - generic [ref=e186]:
+          - generic [ref=e187]:
+            - generic [ref=e188]: NORMAL
+            - generic [ref=e189]: PUBLISHED
+          - generic [ref=e190]: Cancel ReRegister 1771831806287
+          - paragraph [ref=e191]: Event for cancellation and re-registration boundary coverage
+          - generic [ref=e192]:
+            - generic [ref=e193]:
+              - strong [ref=e194]: "Starts:"
+              - text: 2/28/2026, 11:00:00 AM
+            - generic [ref=e195]:
+              - strong [ref=e196]: "Ends:"
+              - text: 3/1/2026, 11:00:00 AM
+            - generic [ref=e197]:
+              - strong [ref=e198]: "Organizer:"
+              - text: Overnight Organizer
+            - generic [ref=e199]:
+              - strong [ref=e200]: "Eligibility:"
+              - text: all
+            - generic [ref=e201]:
+              - strong [ref=e202]: "Fee:"
+              - text: "0"
+          - generic [ref=e203]:
+            - generic [ref=e204]: qa
+            - generic [ref=e205]: boundary
+          - button "View details" [ref=e206] [cursor=pointer]
+        - generic [ref=e209]:
+          - generic [ref=e210]:
+            - generic [ref=e211]: NORMAL
+            - generic [ref=e212]: PUBLISHED
+          - generic [ref=e213]: Seeded Overnight Published Event
+          - paragraph [ref=e214]: Published edit regression 1771832166746
+          - generic [ref=e215]:
+            - generic [ref=e216]:
+              - strong [ref=e217]: "Starts:"
+              - text: 3/2/2026, 12:52:37 PM
+            - generic [ref=e218]:
+              - strong [ref=e219]: "Ends:"
+              - text: 3/3/2026, 12:52:37 PM
+            - generic [ref=e220]:
+              - strong [ref=e221]: "Organizer:"
+              - text: Overnight Organizer
+            - generic [ref=e222]:
+              - strong [ref=e223]: "Eligibility:"
+              - text: all
+            - generic [ref=e224]:
+              - strong [ref=e225]: "Fee:"
+              - text: "0"
+          - generic [ref=e226]:
+            - generic [ref=e227]: seed
+            - generic [ref=e228]: automation
+          - button "View details" [ref=e229] [cursor=pointer]
+```
