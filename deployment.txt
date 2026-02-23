@@ -1,2 +1,0 @@
-Frontend URL: http://localhost:5173
-Backend URL: http://localhost:4000/api
