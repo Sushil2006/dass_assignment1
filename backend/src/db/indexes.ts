@@ -27,4 +27,11 @@ export async function ensureDbIndexes(): Promise<void> {
     { unique: true },
   );
   await db.collection("attendances").createIndex({ eventId: 1, markedAt: -1 });
+
+  await db
+    .collection("attendance_audit_logs")
+    .createIndex({ eventId: 1, createdAt: -1 });
+  await db
+    .collection("attendance_audit_logs")
+    .createIndex({ participationId: 1, createdAt: -1 });
 }

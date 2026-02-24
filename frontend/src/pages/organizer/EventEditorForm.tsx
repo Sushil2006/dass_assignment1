@@ -223,6 +223,20 @@ export default function EventEditorForm({
     ]);
   }
 
+  function moveNormalField(index: number, direction: "up" | "down") {
+    setNormalFields((prev) => {
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= prev.length) {
+        return prev;
+      }
+
+      const next = [...prev];
+      const [field] = next.splice(index, 1);
+      next.splice(targetIndex, 0, field);
+      return next;
+    });
+  }
+
   function updateMerchVariant(index: number, patch: Partial<MerchVariantDraft>) {
     setMerchVariants((prev) =>
       prev.map((variant, variantIndex) =>
@@ -632,10 +646,29 @@ export default function EventEditorForm({
                             />
                           </Col>
 
-                          <Col md={2} className="d-flex justify-content-end">
+                          <Col md={2} className="d-flex justify-content-end gap-2">
+                            <Button
+                              variant="outline-secondary"
+                              type="button"
+                              size="sm"
+                              disabled={isPublishedLimited || index === 0}
+                              onClick={() => moveNormalField(index, "up")}
+                            >
+                              Up
+                            </Button>
+                            <Button
+                              variant="outline-secondary"
+                              type="button"
+                              size="sm"
+                              disabled={isPublishedLimited || index === normalFields.length - 1}
+                              onClick={() => moveNormalField(index, "down")}
+                            >
+                              Down
+                            </Button>
                             <Button
                               variant="outline-danger"
                               type="button"
+                              size="sm"
                               disabled={isPublishedLimited || normalFields.length <= 1}
                               onClick={() => removeNormalField(index)}
                             >

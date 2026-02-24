@@ -156,6 +156,7 @@ export default function EventDetail() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [checkboxAnswers, setCheckboxAnswers] = useState<Record<string, string[]>>({});
   const [fileAnswers, setFileAnswers] = useState<Record<string, File | null>>({});
+  const [normalPaymentProof, setNormalPaymentProof] = useState<File | null>(null);
 
   const [selectedSku, setSelectedSku] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -207,6 +208,10 @@ export default function EventDetail() {
   async function submitNormalRegistration(eventForm: React.FormEvent<HTMLFormElement>) {
     eventForm.preventDefault();
     if (!event) return;
+    if (event.regFee > 0 && !normalPaymentProof) {
+      setError("Payment proof image is required for paid registrations.");
+      return;
+    }
 
     setSubmittingRegister(true);
     setError(null);
@@ -225,6 +230,9 @@ export default function EventDetail() {
       for (const [key, file] of Object.entries(fileAnswers)) {
         if (file) formData.append(key, file);
       }
+      if (event.regFee > 0 && normalPaymentProof) {
+        formData.append("paymentProof", normalPaymentProof);
+      }
 
       const res = await apiFetch("/api/participations/register", {
         method: "POST",
@@ -235,6 +243,7 @@ export default function EventDetail() {
       const data = (await res.json()) as ParticipationCreateResponse;
       setCreatedTicketId(data.ticket?.id ?? null);
       setSuccess("Registration submitted and ticket generated.");
+      setNormalPaymentProof(null);
       await loadEvent();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to register");
@@ -599,6 +608,24 @@ export default function EventDetail() {
                       </Col>
                     ))}
                   </Row>
+                  {event.regFee > 0 ? (
+                    <Row className="g-3 mt-1">
+                      <Col xs={12}>
+                        <Form.Group controlId="normal-payment-proof">
+                          <Form.Label>Payment Proof (image)</Form.Label>
+                          <Form.Control
+                            type="file"
+                            accept="image/*"
+                            required
+                            onChange={(currentEvent) => {
+                              const input = currentEvent.target as HTMLInputElement;
+                              setNormalPaymentProof(input.files?.[0] ?? null);
+                            }}
+                          />
+                        </Form.Group>
+                      </Col>
+                    </Row>
+                  ) : null}
                   <div className="mt-3">
                     <Button type="submit" disabled={submittingRegister}>
                       {submittingRegister ? "Submitting..." : "Register"}

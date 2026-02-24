@@ -522,6 +522,7 @@ adminRouter.delete("/organizers/:organizerId", async (req, res, next) => {
     const tickets = db.collection(collections.tickets);
     const payments = db.collection<OrganizerPaymentDoc>(collections.payments);
     const attendances = db.collection(collections.attendances);
+    const attendanceAuditLogs = db.collection(collections.attendanceAuditLogs);
     const resetRequests = db.collection(collections.organizerPasswordResetRequests);
     const announcements = db.collection(collections.announcements);
 
@@ -589,6 +590,22 @@ adminRouter.delete("/organizers/:organizerId", async (req, res, next) => {
       await attendances.deleteMany(attendanceDeleteFilters[0]);
     } else if (attendanceDeleteFilters.length > 1) {
       await attendances.deleteMany({ $or: attendanceDeleteFilters });
+    }
+
+    const attendanceAuditDeleteFilters: Record<string, unknown>[] = [];
+    if (organizerEventIds.length > 0) {
+      attendanceAuditDeleteFilters.push({ eventId: { $in: organizerEventIds } });
+    }
+    if (registrationIds.length > 0) {
+      attendanceAuditDeleteFilters.push({
+        participationId: { $in: registrationIds },
+      });
+    }
+    attendanceAuditDeleteFilters.push({ actorOrganizerId: organizerId });
+    if (attendanceAuditDeleteFilters.length === 1) {
+      await attendanceAuditLogs.deleteMany(attendanceAuditDeleteFilters[0]);
+    } else {
+      await attendanceAuditLogs.deleteMany({ $or: attendanceAuditDeleteFilters });
     }
 
     if (organizerEventIds.length > 0) {

@@ -1,5 +1,5 @@
 import { type Request, Router } from "express";
-import { ObjectId } from "mongodb";
+import { ObjectId, type Collection } from "mongodb";
 import { z } from "zod";
 import { getDb } from "../db/client";
 import { collections } from "../db/collections";
@@ -9,6 +9,7 @@ import { toCsvString } from "../utils/csv";
 import { AUTH_COOKIE_NAME } from "../config/cookies";
 import { verifyJwt } from "../utils/jwt";
 import { postEventAnnouncementToDiscordSafe } from "../utils/discord";
+import type { StoredTicketDoc } from "../utils/tickets";
 
 export const eventsRouter = Router();
 
@@ -184,6 +185,33 @@ type StoredAttendanceDoc = {
   markedAt: Date;
 };
 
+type AttendanceAuditAction =
+  | "scan_mark_present"
+  | "manual_mark_present"
+  | "manual_mark_absent";
+
+type StoredAttendanceAuditDoc = {
+  _id: ObjectId;
+  eventId: ObjectId;
+  participationId: ObjectId;
+  userId: ObjectId;
+  actorOrganizerId: ObjectId;
+  action: AttendanceAuditAction;
+  reason?: string;
+  previousIsPresent: boolean;
+  previousMarkedAt: Date | null;
+  nextIsPresent: boolean;
+  nextMarkedAt: Date | null;
+  createdAt: Date;
+};
+
+type TicketQrPayloadData = {
+  ticketId?: string;
+  eventId?: ObjectId;
+  userId?: ObjectId;
+  participationId?: ObjectId;
+};
+
 type ParticipantViewerContext = {
   id: ObjectId;
   interests: string[];
@@ -327,6 +355,27 @@ const updateEventStatusSchema = z.object({
   status: z.enum(persistedEventStatuses),
 });
 
+const markAttendanceSchema = z
+  .object({
+    ticketId: z.string().trim().min(1).max(120).optional(),
+    qrPayload: z.string().trim().min(1).max(8000).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.ticketId && !data.qrPayload) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ticketId"],
+        message: "ticketId or qrPayload is required",
+      });
+    }
+  });
+
+const overrideAttendanceSchema = z.object({
+  participationId: z.string().trim().min(1),
+  present: z.boolean(),
+  reason: z.string().trim().min(3).max(500),
+});
+
 const publicEventsQuerySchema = z
   .object({
     q: z.string().trim().min(1).max(120).optional(),
@@ -372,6 +421,72 @@ function readQueryBooleanValue(value: unknown): boolean | undefined {
   if (normalized === "true" || normalized === "1") return true;
   if (normalized === "false" || normalized === "0") return false;
   return undefined;
+}
+
+function parseTicketQrPayload(raw: string): TicketQrPayloadData | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const payload = parsed as Record<string, unknown>;
+
+    const ticketId =
+      typeof payload.ticketId === "string" && payload.ticketId.trim().length > 0
+        ? payload.ticketId.trim()
+        : undefined;
+    const eventId = parseObjectId(payload.eventId);
+    const userId = parseObjectId(payload.userId);
+    const participationId = parseObjectId(payload.participationId);
+
+    if (!ticketId && !participationId) {
+      return null;
+    }
+
+    return {
+      ...(ticketId ? { ticketId } : {}),
+      ...(eventId ? { eventId } : {}),
+      ...(userId ? { userId } : {}),
+      ...(participationId ? { participationId } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function appendAttendanceAuditLog(params: {
+  attendanceAuditLogs: Collection<StoredAttendanceAuditDoc>;
+  eventId: ObjectId;
+  participationId: ObjectId;
+  userId: ObjectId;
+  actorOrganizerId: ObjectId;
+  action: AttendanceAuditAction;
+  reason?: string;
+  previousIsPresent: boolean;
+  previousMarkedAt: Date | null;
+  nextIsPresent: boolean;
+  nextMarkedAt: Date | null;
+  createdAt: Date;
+}): Promise<void> {
+  const baseDoc = {
+    _id: new ObjectId(),
+    eventId: params.eventId,
+    participationId: params.participationId,
+    userId: params.userId,
+    actorOrganizerId: params.actorOrganizerId,
+    action: params.action,
+    previousIsPresent: params.previousIsPresent,
+    previousMarkedAt: params.previousMarkedAt,
+    nextIsPresent: params.nextIsPresent,
+    nextMarkedAt: params.nextMarkedAt,
+    createdAt: params.createdAt,
+  };
+  const reason = params.reason?.trim();
+  const doc: StoredAttendanceAuditDoc = reason
+    ? { ...baseDoc, reason }
+    : baseDoc;
+
+  await params.attendanceAuditLogs.insertOne(doc);
 }
 
 function normalizeSearchText(value: string): string {
@@ -1159,6 +1274,12 @@ eventsRouter.get(
       const attendances = db.collection<StoredAttendanceDoc>(
         collections.attendances,
       );
+      const attendanceAuditLogs = db.collection<StoredAttendanceAuditDoc>(
+        collections.attendanceAuditLogs,
+      );
+      const users = db.collection<OrganizerUserDoc | ParticipantUserDoc>(
+        collections.users,
+      );
       const participationIds = loaded.participations.map((entry) => entry._id);
 
       const foundPayments =
@@ -1183,6 +1304,31 @@ eventsRouter.get(
           : [];
       const attendanceByParticipationId = new Map(
         foundAttendances.map((entry) => [entry.participationId.toString(), entry]),
+      );
+
+      const rawAttendanceAuditTrail = await attendanceAuditLogs
+        .find({ eventId: loaded.event._id })
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .toArray();
+
+      const actorOrganizerIds = [
+        ...new Set(
+          rawAttendanceAuditTrail.map((entry) => entry.actorOrganizerId.toString()),
+        ),
+      ].map((id) => new ObjectId(id));
+
+      const organizerActors =
+        actorOrganizerIds.length > 0
+          ? await users
+              .find({
+                _id: { $in: actorOrganizerIds },
+                role: "organizer",
+              })
+              .toArray()
+          : [];
+      const organizerNameById = new Map(
+        organizerActors.map((entry) => [entry._id.toString(), entry.name]),
       );
 
       const now = new Date();
@@ -1262,6 +1408,448 @@ eventsRouter.get(
         event: toEventResponse(loaded.event),
         analytics,
         participants,
+        attendanceAuditTrail: rawAttendanceAuditTrail.map((entry) => ({
+          id: entry._id.toString(),
+          eventId: entry.eventId.toString(),
+          participationId: entry.participationId.toString(),
+          userId: entry.userId.toString(),
+          participantName:
+            loaded.participantsById.get(entry.userId.toString())?.name ??
+            "Unknown participant",
+          actorOrganizerId: entry.actorOrganizerId.toString(),
+          actorOrganizerName:
+            organizerNameById.get(entry.actorOrganizerId.toString()) ?? null,
+          action: entry.action,
+          reason: entry.reason ?? null,
+          previousIsPresent: entry.previousIsPresent,
+          previousMarkedAt: entry.previousMarkedAt,
+          nextIsPresent: entry.nextIsPresent,
+          nextMarkedAt: entry.nextMarkedAt,
+          createdAt: entry.createdAt,
+        })),
+      });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// organizer marks attendance by scanning ticket QR payload or entering ticket id
+eventsRouter.post(
+  "/organizer/:eventId/attendance/scan",
+  requireAuth,
+  requireRole("organizer"),
+  async (req, res, next) => {
+    try {
+      const eventId = parseObjectId(req.params.eventId);
+      if (!eventId) {
+        return res.status(400).json({ error: { message: "Invalid event id" } });
+      }
+
+      const parsed = markAttendanceSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: { message: "Invalid request", details: parsed.error.flatten() },
+        });
+      }
+
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const organizerId = getOrganizerObjectId(authUser.id);
+      if (!organizerId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const db = getDb();
+      const events = db.collection<StoredEventDoc>(collections.events);
+      const participations = db.collection<StoredParticipationDoc>(
+        collections.registrations,
+      );
+      const tickets = db.collection<StoredTicketDoc>(collections.tickets);
+      const attendances = db.collection<StoredAttendanceDoc>(collections.attendances);
+      const attendanceAuditLogs = db.collection<StoredAttendanceAuditDoc>(
+        collections.attendanceAuditLogs,
+      );
+      const users = db.collection<ParticipantUserDoc>(collections.users);
+
+      const event = await events.findOne({ _id: eventId, organizerId });
+      if (!event) {
+        return res.status(404).json({ error: { message: "Event not found" } });
+      }
+
+      const body = parsed.data;
+      const rawTicketId = body.ticketId?.trim();
+      const rawQrPayload = body.qrPayload?.trim();
+      const qrData = rawQrPayload ? parseTicketQrPayload(rawQrPayload) : null;
+      if (rawQrPayload && !qrData) {
+        return res.status(400).json({ error: { message: "Invalid qrPayload" } });
+      }
+
+      const ticketId = rawTicketId ?? qrData?.ticketId;
+      let ticket: StoredTicketDoc | null = null;
+
+      if (ticketId) {
+        ticket = await tickets.findOne({ ticketId });
+      } else if (qrData?.participationId) {
+        ticket = await tickets.findOne({ participationId: qrData.participationId });
+      }
+
+      if (!ticket) {
+        return res.status(404).json({ error: { message: "Ticket not found" } });
+      }
+
+      if (!ticket.eventId.equals(eventId)) {
+        return res
+          .status(400)
+          .json({ error: { message: "Ticket does not belong to this event" } });
+      }
+
+      if (qrData) {
+        if (qrData.ticketId && qrData.ticketId !== ticket.ticketId) {
+          return res.status(400).json({ error: { message: "Invalid qrPayload" } });
+        }
+        if (qrData.eventId && !qrData.eventId.equals(ticket.eventId)) {
+          return res.status(400).json({ error: { message: "Invalid qrPayload" } });
+        }
+        if (qrData.userId && !qrData.userId.equals(ticket.userId)) {
+          return res.status(400).json({ error: { message: "Invalid qrPayload" } });
+        }
+        if (
+          qrData.participationId &&
+          !qrData.participationId.equals(ticket.participationId)
+        ) {
+          return res.status(400).json({ error: { message: "Invalid qrPayload" } });
+        }
+      }
+
+      const participation = await participations.findOne({
+        _id: ticket.participationId,
+        eventId: ticket.eventId,
+      });
+      if (!participation) {
+        return res
+          .status(404)
+          .json({ error: { message: "Participation not found for this ticket" } });
+      }
+
+      if (participation.status !== "confirmed") {
+        return res.status(409).json({
+          error: {
+            message: `Cannot mark attendance for ${participation.status} participation`,
+          },
+        });
+      }
+
+      const existing = await attendances.findOne({
+        participationId: participation._id,
+      });
+      const participant = await users.findOne({
+        _id: participation.userId,
+        role: "participant",
+      });
+
+      if (existing) {
+        return res.json({
+          alreadyMarked: true,
+          attendance: {
+            id: existing._id.toString(),
+            eventId: existing.eventId.toString(),
+            participationId: existing.participationId.toString(),
+            userId: existing.userId.toString(),
+            markedAt: existing.markedAt,
+          },
+          ticket: {
+            id: ticket.ticketId,
+            eventId: ticket.eventId.toString(),
+            participationId: ticket.participationId.toString(),
+          },
+          participant: participant
+            ? {
+                id: participant._id.toString(),
+                name: participant.name,
+                email: participant.email,
+              }
+            : {
+                id: participation.userId.toString(),
+                name: "Unknown participant",
+                email: null,
+              },
+        });
+      }
+
+      const now = new Date();
+      const attendance: StoredAttendanceDoc = {
+        _id: new ObjectId(),
+        eventId: ticket.eventId,
+        participationId: ticket.participationId,
+        userId: ticket.userId,
+        markedAt: now,
+      };
+
+      try {
+        await attendances.insertOne(attendance);
+      } catch (err: unknown) {
+        const duplicate =
+          err &&
+          typeof err === "object" &&
+          "code" in err &&
+          (err as { code?: number }).code === 11000;
+
+        if (!duplicate) {
+          throw err;
+        }
+
+        const current = await attendances.findOne({
+          participationId: participation._id,
+        });
+        if (!current) {
+          throw err;
+        }
+
+        return res.json({
+          alreadyMarked: true,
+          attendance: {
+            id: current._id.toString(),
+            eventId: current.eventId.toString(),
+            participationId: current.participationId.toString(),
+            userId: current.userId.toString(),
+            markedAt: current.markedAt,
+          },
+          ticket: {
+            id: ticket.ticketId,
+            eventId: ticket.eventId.toString(),
+            participationId: ticket.participationId.toString(),
+          },
+          participant: participant
+            ? {
+                id: participant._id.toString(),
+                name: participant.name,
+                email: participant.email,
+              }
+            : {
+                id: participation.userId.toString(),
+                name: "Unknown participant",
+                email: null,
+              },
+        });
+      }
+
+      await appendAttendanceAuditLog({
+        attendanceAuditLogs,
+        eventId: ticket.eventId,
+        participationId: ticket.participationId,
+        userId: ticket.userId,
+        actorOrganizerId: organizerId,
+        action: "scan_mark_present",
+        previousIsPresent: false,
+        previousMarkedAt: null,
+        nextIsPresent: true,
+        nextMarkedAt: attendance.markedAt,
+        createdAt: now,
+      });
+
+      return res.status(201).json({
+        alreadyMarked: false,
+        attendance: {
+          id: attendance._id.toString(),
+          eventId: attendance.eventId.toString(),
+          participationId: attendance.participationId.toString(),
+          userId: attendance.userId.toString(),
+          markedAt: attendance.markedAt,
+        },
+        ticket: {
+          id: ticket.ticketId,
+          eventId: ticket.eventId.toString(),
+          participationId: ticket.participationId.toString(),
+        },
+        participant: participant
+          ? {
+              id: participant._id.toString(),
+              name: participant.name,
+              email: participant.email,
+            }
+          : {
+              id: participation.userId.toString(),
+              name: "Unknown participant",
+              email: null,
+            },
+      });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// organizer manually overrides attendance for exceptional cases with mandatory reason
+eventsRouter.patch(
+  "/organizer/:eventId/attendance/override",
+  requireAuth,
+  requireRole("organizer"),
+  async (req, res, next) => {
+    try {
+      const eventId = parseObjectId(req.params.eventId);
+      if (!eventId) {
+        return res.status(400).json({ error: { message: "Invalid event id" } });
+      }
+
+      const parsed = overrideAttendanceSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: { message: "Invalid request", details: parsed.error.flatten() },
+        });
+      }
+
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const organizerId = getOrganizerObjectId(authUser.id);
+      if (!organizerId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participationId = parseObjectId(parsed.data.participationId);
+      if (!participationId) {
+        return res
+          .status(400)
+          .json({ error: { message: "Invalid participation id" } });
+      }
+
+      const db = getDb();
+      const events = db.collection<StoredEventDoc>(collections.events);
+      const participations = db.collection<StoredParticipationDoc>(
+        collections.registrations,
+      );
+      const attendances = db.collection<StoredAttendanceDoc>(collections.attendances);
+      const attendanceAuditLogs = db.collection<StoredAttendanceAuditDoc>(
+        collections.attendanceAuditLogs,
+      );
+      const users = db.collection<ParticipantUserDoc>(collections.users);
+
+      const event = await events.findOne({ _id: eventId, organizerId });
+      if (!event) {
+        return res.status(404).json({ error: { message: "Event not found" } });
+      }
+
+      const participation = await participations.findOne({
+        _id: participationId,
+        eventId,
+      });
+      if (!participation) {
+        return res
+          .status(404)
+          .json({ error: { message: "Participation not found for this event" } });
+      }
+
+      if (participation.status !== "confirmed") {
+        return res.status(409).json({
+          error: {
+            message: `Cannot override attendance for ${participation.status} participation`,
+          },
+        });
+      }
+
+      const participant = await users.findOne({
+        _id: participation.userId,
+        role: "participant",
+      });
+
+      const existingAttendance = await attendances.findOne({
+        participationId: participation._id,
+      });
+      const beforeIsPresent = Boolean(existingAttendance);
+      const beforeMarkedAt = existingAttendance?.markedAt ?? null;
+
+      const now = new Date();
+      let nextAttendance = existingAttendance;
+
+      if (parsed.data.present) {
+        if (!nextAttendance) {
+          const created: StoredAttendanceDoc = {
+            _id: new ObjectId(),
+            eventId,
+            participationId: participation._id,
+            userId: participation.userId,
+            markedAt: now,
+          };
+
+          try {
+            await attendances.insertOne(created);
+            nextAttendance = created;
+          } catch (err: unknown) {
+            const duplicate =
+              err &&
+              typeof err === "object" &&
+              "code" in err &&
+              (err as { code?: number }).code === 11000;
+
+            if (!duplicate) {
+              throw err;
+            }
+
+            const current = await attendances.findOne({
+              participationId: participation._id,
+            });
+            if (!current) {
+              throw err;
+            }
+            nextAttendance = current;
+          }
+        }
+      } else {
+        if (nextAttendance) {
+          await attendances.deleteOne({ _id: nextAttendance._id });
+        }
+        nextAttendance = null;
+      }
+
+      const nextIsPresent = Boolean(nextAttendance);
+      const nextMarkedAt = nextAttendance?.markedAt ?? null;
+      const changed = beforeIsPresent !== nextIsPresent;
+
+      if (changed) {
+        await appendAttendanceAuditLog({
+          attendanceAuditLogs,
+          eventId,
+          participationId: participation._id,
+          userId: participation.userId,
+          actorOrganizerId: organizerId,
+          action: parsed.data.present ? "manual_mark_present" : "manual_mark_absent",
+          reason: parsed.data.reason.trim(),
+          previousIsPresent: beforeIsPresent,
+          previousMarkedAt: beforeMarkedAt,
+          nextIsPresent,
+          nextMarkedAt,
+          createdAt: now,
+        });
+      }
+
+      return res.json({
+        alreadyInState: !changed,
+        attendance: nextAttendance
+          ? {
+              id: nextAttendance._id.toString(),
+              eventId: nextAttendance.eventId.toString(),
+              participationId: nextAttendance.participationId.toString(),
+              userId: nextAttendance.userId.toString(),
+              markedAt: nextAttendance.markedAt,
+            }
+          : null,
+        participant: participant
+          ? {
+              id: participant._id.toString(),
+              name: participant.name,
+              email: participant.email,
+            }
+          : {
+              id: participation.userId.toString(),
+              name: "Unknown participant",
+              email: null,
+            },
       });
     } catch (err) {
       return next(err);

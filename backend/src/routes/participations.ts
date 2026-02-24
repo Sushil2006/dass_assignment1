@@ -557,6 +557,7 @@ participationsRouter.post(
         collections.registrations,
       );
       const tickets = db.collection<StoredTicketDoc>(collections.tickets);
+      const payments = db.collection<StoredPaymentDoc>(collections.payments);
       const users = db.collection<ParticipantUserDoc>(collections.users);
 
       const participant = await users.findOne({
@@ -637,10 +638,45 @@ participationsRouter.post(
         );
       }
 
+      const paymentProofFiles = uploadedFiles.filter(
+        (file) => file.fieldname === "paymentProof",
+      );
+      if (paymentProofFiles.length > 1) {
+        return rejectWithCleanup(
+          res,
+          400,
+          "Only one payment proof file is allowed",
+          uploadedFiles,
+        );
+      }
+      const paymentProofFile = paymentProofFiles[0];
+      const normalFormFiles = uploadedFiles.filter(
+        (file) => file.fieldname !== "paymentProof",
+      );
+
+      if (event.regFee > 0) {
+        if (!paymentProofFile) {
+          return rejectWithCleanup(
+            res,
+            400,
+            "Payment proof image is required for paid registrations",
+            uploadedFiles,
+          );
+        }
+        if (!paymentProofFile.mimetype.startsWith("image/")) {
+          return rejectWithCleanup(
+            res,
+            400,
+            "Payment proof must be an image file",
+            uploadedFiles,
+          );
+        }
+      }
+
       const validation = validateNormalResponses({
         fields: event.normalForm?.fields ?? [],
         answers: parsed.data.answers,
-        uploadedFiles,
+        uploadedFiles: normalFormFiles,
       });
       if (validation.error || !validation.responses) {
         return rejectWithCleanup(
@@ -675,6 +711,18 @@ participationsRouter.post(
 
       await participations.insertOne(participation);
       await tickets.insertOne(ticket);
+      if (event.regFee > 0 && paymentProofFile) {
+        const payment: StoredPaymentDoc = {
+          _id: new ObjectId(),
+          registrationId: participationId,
+          method: "other",
+          amount: event.regFee,
+          proofUrl: buildProofUrl(paymentProofFile.filename),
+          status: "approved",
+          createdAt: now,
+        };
+        await payments.insertOne(payment);
+      }
 
       await sendTicketEmailSafe({
         toEmail: participant.email,
