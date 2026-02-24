@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { type Collection, ObjectId } from "mongodb";
+import { type Collection, type Filter, ObjectId } from "mongodb";
 import { z } from "zod";
 import { getDb } from "../db/client";
 import { collections } from "../db/collections";
@@ -9,6 +9,7 @@ import {
 } from "../constants/organizerCategories";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { isParticipantEligibleForEvent } from "../utils/eligibility";
+import { buildCalendarIcs } from "../utils/calendar";
 
 export const participantsRouter = Router();
 
@@ -165,6 +166,45 @@ function parseObjectId(rawId: unknown): ObjectId | null {
   if (typeof rawId !== "string") return null;
   if (!ObjectId.isValid(rawId)) return null;
   return new ObjectId(rawId);
+}
+
+function readQueryString(raw: unknown): string | null {
+  if (typeof raw === "string") return raw.trim();
+  if (Array.isArray(raw) && typeof raw[0] === "string") return raw[0].trim();
+  return null;
+}
+
+function parseReminderMinutes(raw: unknown): number | null {
+  const value = readQueryString(raw);
+  if (!value) return 30;
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return null;
+  if (parsed < 0 || parsed > 7 * 24 * 60) return null;
+  return parsed;
+}
+
+function parseEventIdsQuery(raw: unknown): ObjectId[] | null {
+  const value = readQueryString(raw);
+  if (!value) return [];
+
+  const parts = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  const ids: ObjectId[] = [];
+  const seen = new Set<string>();
+  for (const part of parts) {
+    const eventId = parseObjectId(part);
+    if (!eventId) return null;
+    const asString = eventId.toString();
+    if (seen.has(asString)) continue;
+    seen.add(asString);
+    ids.push(eventId);
+  }
+
+  return ids;
 }
 
 function normalizeInterests(interests: string[]): string[] {
@@ -1020,6 +1060,171 @@ participantsRouter.get(
         completed,
         cancelledRejected,
       });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// participant exports one registered event to .ics
+participantsRouter.get(
+  "/me/calendar/:eventId.ics",
+  requireAuth,
+  requireRole("participant"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participantId = parseObjectId(authUser.id);
+      if (!participantId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const eventId = parseObjectId(req.params.eventId);
+      if (!eventId) {
+        return res.status(400).json({ error: { message: "Invalid event id" } });
+      }
+
+      const reminderMinutes = parseReminderMinutes(req.query.reminderMinutes);
+      if (reminderMinutes === null) {
+        return res.status(400).json({ error: { message: "Invalid reminderMinutes" } });
+      }
+
+      const db = getDb();
+      const participations = db.collection<StoredParticipationDoc>(
+        collections.registrations,
+      );
+      const events = db.collection<StoredEventDoc>(collections.events);
+
+      const participation = await participations.findOne({
+        eventId,
+        userId: participantId,
+        status: { $nin: ["cancelled", "rejected"] },
+      });
+      if (!participation) {
+        return res.status(404).json({
+          error: { message: "No active participation found for this event" },
+        });
+      }
+
+      const event = await events.findOne({ _id: eventId });
+      if (!event) {
+        return res.status(404).json({ error: { message: "Event not found" } });
+      }
+
+      const ics = buildCalendarIcs({
+        calendarName: "Felicity Registered Events",
+        reminderMinutes,
+        events: [
+          {
+            uid: `${event._id.toString()}@felicity.local`,
+            title: event.name,
+            description: event.description,
+            startDate: event.startDate,
+            endDate: event.endDate,
+          },
+        ],
+      });
+
+      const safeEventName = event.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60);
+      const filename = `${safeEventName || "event"}.ics`;
+
+      res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      return res.send(ics);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// participant exports multiple registered events to one .ics file
+participantsRouter.get(
+  "/me/calendar.ics",
+  requireAuth,
+  requireRole("participant"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participantId = parseObjectId(authUser.id);
+      if (!participantId) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const reminderMinutes = parseReminderMinutes(req.query.reminderMinutes);
+      if (reminderMinutes === null) {
+        return res.status(400).json({ error: { message: "Invalid reminderMinutes" } });
+      }
+
+      const requestedEventIds = parseEventIdsQuery(req.query.eventIds);
+      if (requestedEventIds === null) {
+        return res.status(400).json({ error: { message: "Invalid eventIds query" } });
+      }
+
+      const db = getDb();
+      const participations = db.collection<StoredParticipationDoc>(
+        collections.registrations,
+      );
+      const events = db.collection<StoredEventDoc>(collections.events);
+
+      const participationFilter: Filter<StoredParticipationDoc> = {
+        userId: participantId,
+        status: { $nin: ["cancelled", "rejected"] as ParticipationStatus[] },
+      };
+      if (requestedEventIds.length > 0) {
+        participationFilter.eventId = { $in: requestedEventIds };
+      }
+
+      const participantEvents = await participations
+        .find(participationFilter, { projection: { eventId: 1 } })
+        .toArray();
+      if (participantEvents.length === 0) {
+        return res
+          .status(404)
+          .json({ error: { message: "No active participations found for calendar export" } });
+      }
+
+      const eventIds = Array.from(
+        new Set(participantEvents.map((entry) => entry.eventId.toString())),
+      ).map((id) => new ObjectId(id));
+
+      const foundEvents = await events
+        .find({ _id: { $in: eventIds } })
+        .sort({ startDate: 1 })
+        .toArray();
+      if (foundEvents.length === 0) {
+        return res.status(404).json({ error: { message: "No events found for export" } });
+      }
+
+      const ics = buildCalendarIcs({
+        calendarName: "Felicity Registered Events",
+        reminderMinutes,
+        events: foundEvents.map((event) => ({
+          uid: `${event._id.toString()}@felicity.local`,
+          title: event.name,
+          description: event.description,
+          startDate: event.startDate,
+          endDate: event.endDate,
+        })),
+      });
+
+      res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="felicity-registered-events.ics"',
+      );
+      return res.send(ics);
     } catch (err) {
       return next(err);
     }

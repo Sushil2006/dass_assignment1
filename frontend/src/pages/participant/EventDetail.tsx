@@ -88,6 +88,53 @@ function formatDate(value: string): string {
   return parsed.toLocaleString();
 }
 
+function formatCalendarUtc(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function googleCalendarLink(params: {
+  title: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  reminderMinutes: number;
+}): string {
+  const url = new URL("https://calendar.google.com/calendar/render");
+  url.searchParams.set("action", "TEMPLATE");
+  url.searchParams.set("text", params.title);
+  url.searchParams.set(
+    "details",
+    `${params.description}\n\nReminder: ${params.reminderMinutes} minutes before`,
+  );
+  url.searchParams.set(
+    "dates",
+    `${formatCalendarUtc(params.startDate)}/${formatCalendarUtc(params.endDate)}`,
+  );
+  return url.toString();
+}
+
+function outlookCalendarLink(params: {
+  title: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  reminderMinutes: number;
+}): string {
+  const url = new URL("https://outlook.live.com/calendar/0/deeplink/compose");
+  url.searchParams.set("path", "/calendar/action/compose");
+  url.searchParams.set("rru", "addevent");
+  url.searchParams.set("subject", params.title);
+  url.searchParams.set(
+    "body",
+    `${params.description}\n\nReminder: ${params.reminderMinutes} minutes before`,
+  );
+  url.searchParams.set("startdt", new Date(params.startDate).toISOString());
+  url.searchParams.set("enddt", new Date(params.endDate).toISOString());
+  return url.toString();
+}
+
 function isActiveParticipation(status: ParticipationStatus | undefined): boolean {
   if (!status) return false;
   return status !== "cancelled" && status !== "rejected";
@@ -104,6 +151,7 @@ export default function EventDetail() {
 
   const [submittingRegister, setSubmittingRegister] = useState(false);
   const [submittingPurchase, setSubmittingPurchase] = useState(false);
+  const [downloadingCalendar, setDownloadingCalendar] = useState(false);
 
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [checkboxAnswers, setCheckboxAnswers] = useState<Record<string, string[]>>({});
@@ -115,6 +163,7 @@ export default function EventDetail() {
     "upi" | "bank_transfer" | "cash" | "card" | "other"
   >("upi");
   const [paymentProof, setPaymentProof] = useState<File | null>(null);
+  const [calendarReminderMinutes, setCalendarReminderMinutes] = useState("30");
 
   const event = detail?.event;
   const participation = detail?.myParticipation ?? null;
@@ -236,6 +285,37 @@ export default function EventDetail() {
     }
   }
 
+  async function downloadEventCalendar() {
+    if (!event || !participation?.id) return;
+
+    setDownloadingCalendar(true);
+    setError(null);
+
+    try {
+      const reminderMinutes = Number(calendarReminderMinutes) || 30;
+      const res = await apiFetch(
+        `/api/participants/me/calendar/${event.id}.ics?reminderMinutes=${reminderMinutes}`,
+      );
+      if (!res.ok) throw new Error(await readErrorMessage(res));
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${event.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "event"}.ics`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (downloadError) {
+      setError(
+        downloadError instanceof Error ? downloadError.message : "Failed to download calendar file",
+      );
+    } finally {
+      setDownloadingCalendar(false);
+    }
+  }
+
   return (
     <Container className="py-4">
       <div className="d-flex justify-content-between align-items-center mb-3">
@@ -320,6 +400,73 @@ export default function EventDetail() {
                 <span>Ticket will be issued after payment approval.</span>
               )}
             </Alert>
+          ) : null}
+
+          {hasActiveParticipation ? (
+            <Card className="border mb-3">
+              <Card.Body>
+                <Card.Title className="h6 mb-3">Add To Calendar</Card.Title>
+                <Row className="g-3 align-items-end">
+                  <Col md={4}>
+                    <Form.Group controlId="calendar-reminder">
+                      <Form.Label>Reminder</Form.Label>
+                      <Form.Select
+                        value={calendarReminderMinutes}
+                        onChange={(currentEvent) =>
+                          setCalendarReminderMinutes(currentEvent.target.value)
+                        }
+                      >
+                        <option value="10">10 minutes before</option>
+                        <option value="30">30 minutes before</option>
+                        <option value="60">1 hour before</option>
+                        <option value="1440">1 day before</option>
+                      </Form.Select>
+                    </Form.Group>
+                  </Col>
+                  <Col md={8} className="d-flex gap-2 flex-wrap">
+                    <Button
+                      variant="outline-primary"
+                      disabled={downloadingCalendar}
+                      onClick={() => {
+                        void downloadEventCalendar();
+                      }}
+                    >
+                      {downloadingCalendar ? "Downloading..." : "Download .ics"}
+                    </Button>
+                    <Button
+                      as="a"
+                      href={googleCalendarLink({
+                        title: event.name,
+                        description: event.description,
+                        startDate: event.startDate,
+                        endDate: event.endDate,
+                        reminderMinutes: Number(calendarReminderMinutes) || 30,
+                      })}
+                      target="_blank"
+                      rel="noreferrer"
+                      variant="outline-success"
+                    >
+                      Open Google Calendar
+                    </Button>
+                    <Button
+                      as="a"
+                      href={outlookCalendarLink({
+                        title: event.name,
+                        description: event.description,
+                        startDate: event.startDate,
+                        endDate: event.endDate,
+                        reminderMinutes: Number(calendarReminderMinutes) || 30,
+                      })}
+                      target="_blank"
+                      rel="noreferrer"
+                      variant="outline-secondary"
+                    >
+                      Open Outlook
+                    </Button>
+                  </Col>
+                </Row>
+              </Card.Body>
+            </Card>
           ) : null}
 
           {!hasActiveParticipation && event.canRegister === false ? (

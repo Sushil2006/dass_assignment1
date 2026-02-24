@@ -73,6 +73,8 @@ export default function MyEvents() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [actioningId, setActioningId] = useState<string | null>(null);
+  const [exportingCalendar, setExportingCalendar] = useState(false);
+  const [calendarReminderMinutes, setCalendarReminderMinutes] = useState("30");
   const [buckets, setBuckets] = useState<Required<MyEventsResponse>>({
     upcoming: [],
     normal: [],
@@ -125,6 +127,45 @@ export default function MyEvents() {
       setError(cancelError instanceof Error ? cancelError.message : "Failed to cancel");
     } finally {
       setActioningId(null);
+    }
+  }
+
+  async function exportUpcomingCalendar() {
+    const eventIds = Array.from(new Set(buckets.upcoming.map((item) => item.eventId)));
+    if (eventIds.length === 0) {
+      setError("No upcoming events available for export.");
+      return;
+    }
+
+    setExportingCalendar(true);
+    setError(null);
+
+    try {
+      const reminderMinutes = Number(calendarReminderMinutes) || 30;
+      const query = new URLSearchParams({
+        eventIds: eventIds.join(","),
+        reminderMinutes: String(reminderMinutes),
+      }).toString();
+      const res = await apiFetch(`/api/participants/me/calendar.ics?${query}`);
+      if (!res.ok) throw new Error(await readErrorMessage(res));
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "felicity-upcoming-events.ics";
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (exportError) {
+      setError(
+        exportError instanceof Error
+          ? exportError.message
+          : "Failed to export upcoming calendar",
+      );
+    } finally {
+      setExportingCalendar(false);
     }
   }
 
@@ -201,9 +242,33 @@ export default function MyEvents() {
           <h1 className="h3 mb-1">My Events</h1>
           <p className="text-muted mb-0">Track participations, tickets, and history tabs.</p>
         </div>
-        <Link className="btn btn-primary" to="/participant/events">
-          Browse Events
-        </Link>
+        <div className="d-flex gap-2 flex-wrap align-items-end">
+          <div>
+            <div className="small text-muted">Reminder</div>
+            <select
+              className="form-select form-select-sm"
+              value={calendarReminderMinutes}
+              onChange={(currentEvent) => setCalendarReminderMinutes(currentEvent.target.value)}
+            >
+              <option value="10">10 min</option>
+              <option value="30">30 min</option>
+              <option value="60">1 hour</option>
+              <option value="1440">1 day</option>
+            </select>
+          </div>
+          <Button
+            variant="outline-primary"
+            disabled={exportingCalendar || buckets.upcoming.length === 0}
+            onClick={() => {
+              void exportUpcomingCalendar();
+            }}
+          >
+            {exportingCalendar ? "Exporting..." : "Export Upcoming (.ics)"}
+          </Button>
+          <Link className="btn btn-primary" to="/participant/events">
+            Browse Events
+          </Link>
+        </div>
       </div>
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
