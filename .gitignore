@@ -24,3 +24,5 @@ automation/
 uploads-overnight/
 docs/
 test_folder/
+!backend/.env.example
+!frontend/.env.example
