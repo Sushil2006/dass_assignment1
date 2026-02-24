@@ -262,7 +262,7 @@ export default function MyEvents({ mode = "all" }: MyEventsProps) {
         </Card>
       ) : (
         <>
-          <Card className="border mb-3">
+          <Card className="border border-dark border-2 mb-3">
             <Card.Body>
               <Card.Title className="h5 mb-3">Events Carousel</Card.Title>
               <Carousel interval={null} className="events-carousel">
@@ -291,6 +291,7 @@ export default function MyEvents({ mode = "all" }: MyEventsProps) {
             </Card.Body>
           </Card>
 
+          <h2 className="h5 mb-3">All Events</h2>
           <Row className="g-3">
             {filteredEvents.map((event) => {
             const busy = actioningId === event.id;
