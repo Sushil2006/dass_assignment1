@@ -268,6 +268,7 @@ export default function OrganizerEventDetail() {
   const [loading, setLoading] = useState(true);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
   const [resolvingPaymentId, setResolvingPaymentId] = useState<string | null>(null);
+  const [openingFileUrl, setOpeningFileUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [detail, setDetail] = useState<EventDetailResponse | null>(null);
@@ -430,6 +431,52 @@ export default function OrganizerEventDetail() {
   useEffect(() => {
     void loadDetail();
   }, [loadDetail]);
+
+  const openProtectedFile = useCallback(
+    async (pathOrUrl: string, downloadName?: string) => {
+      const resolvedUrl = resolveApiUrl(pathOrUrl);
+      if (!resolvedUrl) {
+        setError("Invalid file URL");
+        return;
+      }
+
+      setOpeningFileUrl(resolvedUrl);
+      setError(null);
+
+      try {
+        const res = await fetch(resolvedUrl, { credentials: "include" });
+        if (!res.ok) {
+          throw new Error(await readErrorMessage(res));
+        }
+
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const popup = window.open(objectUrl, "_blank", "noopener,noreferrer");
+
+        if (!popup) {
+          const fallbackLink = document.createElement("a");
+          fallbackLink.href = objectUrl;
+          fallbackLink.target = "_blank";
+          fallbackLink.rel = "noreferrer";
+          if (downloadName) {
+            fallbackLink.download = downloadName;
+          }
+          document.body.append(fallbackLink);
+          fallbackLink.click();
+          fallbackLink.remove();
+        }
+
+        window.setTimeout(() => {
+          URL.revokeObjectURL(objectUrl);
+        }, 60_000);
+      } catch (openError) {
+        setError(openError instanceof Error ? openError.message : "Failed to open file");
+      } finally {
+        setOpeningFileUrl(null);
+      }
+    },
+    [],
+  );
 
   async function downloadParticipantsCsv() {
     if (!eventId) return;
@@ -974,13 +1021,20 @@ export default function OrganizerEventDetail() {
                           {entry.payment?.proofUrl ? (
                             <div>
                               <strong>Proof:</strong>{" "}
-                              <a
-                                href={resolveApiUrl(entry.payment.proofUrl)}
-                                target="_blank"
-                                rel="noreferrer"
+                              <button
+                                type="button"
+                                className="btn btn-link btn-sm p-0 align-baseline"
+                                disabled={
+                                  openingFileUrl === resolveApiUrl(entry.payment?.proofUrl ?? "")
+                                }
+                                onClick={() => {
+                                  const proofUrl = entry.payment?.proofUrl;
+                                  if (!proofUrl) return;
+                                  void openProtectedFile(proofUrl);
+                                }}
                               >
                                 open proof
-                              </a>
+                              </button>
                             </div>
                           ) : null}
                           <div>
@@ -1033,13 +1087,24 @@ export default function OrganizerEventDetail() {
                                 <div key={`${entry.id}-${response.key}`}>
                                   <strong>{response.label}:</strong>{" "}
                                   {response.file ? (
-                                    <a
-                                      href={resolveApiUrl(response.file.downloadUrl)}
-                                      target="_blank"
-                                      rel="noreferrer"
+                                    <button
+                                      type="button"
+                                      className="btn btn-link btn-sm p-0 align-baseline"
+                                      disabled={
+                                        openingFileUrl ===
+                                        resolveApiUrl(response.file?.downloadUrl ?? "")
+                                      }
+                                      onClick={() => {
+                                        const file = response.file;
+                                        if (!file) return;
+                                        void openProtectedFile(
+                                          file.downloadUrl,
+                                          file.originalName,
+                                        );
+                                      }}
                                     >
                                       {response.file.originalName}
-                                    </a>
+                                    </button>
                                   ) : (
                                     <span>{formatFieldValue(response) || "-"}</span>
                                   )}
@@ -1268,14 +1333,20 @@ export default function OrganizerEventDetail() {
 
                           <div className="d-flex flex-column gap-2 align-items-end">
                             {order.payment?.proofUrl ? (
-                              <a
+                              <button
+                                type="button"
                                 className="btn btn-outline-secondary btn-sm"
-                                href={resolveApiUrl(order.payment.proofUrl)}
-                                target="_blank"
-                                rel="noreferrer"
+                                disabled={
+                                  openingFileUrl === resolveApiUrl(order.payment?.proofUrl ?? "")
+                                }
+                                onClick={() => {
+                                  const proofUrl = order.payment?.proofUrl;
+                                  if (!proofUrl) return;
+                                  void openProtectedFile(proofUrl);
+                                }}
                               >
                                 View Proof
-                              </a>
+                              </button>
                             ) : null}
                             {order.payment?.status === "pending" ? (
                               <div className="d-flex gap-2">
