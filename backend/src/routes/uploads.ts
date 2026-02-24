@@ -29,6 +29,12 @@ type StoredEventDoc = {
   organizerId: ObjectId;
 };
 
+type StoredPaymentDoc = {
+  _id: ObjectId;
+  registrationId: ObjectId;
+  proofUrl?: string;
+};
+
 function parseObjectId(rawId: unknown): ObjectId | null {
   if (typeof rawId !== "string") return null;
   if (!ObjectId.isValid(rawId)) return null;
@@ -75,12 +81,30 @@ uploadsRouter.get("/:filename", requireAuth, async (req, res, next) => {
       collections.registrations,
     );
     const events = db.collection<StoredEventDoc>(collections.events);
+    const payments = db.collection<StoredPaymentDoc>(collections.payments);
 
-    const participation = await participations.findOne({
+    let participation = await participations.findOne({
       "normalResponses.file.filename": filename,
     });
+    let downloadName = filename;
+
     if (!participation) {
-      return res.status(404).json({ error: { message: "File not found" } });
+      const payment = await payments.findOne({
+        proofUrl: `/api/uploads/${filename}`,
+      });
+      if (!payment) {
+        return res.status(404).json({ error: { message: "File not found" } });
+      }
+
+      participation = await participations.findOne({
+        _id: payment.registrationId,
+      });
+      if (!participation) {
+        return res.status(404).json({ error: { message: "File not found" } });
+      }
+
+      const extension = path.extname(filename).toLowerCase();
+      downloadName = `payment-proof${extension || ""}`;
     }
 
     const isOwner = participation.userId.toString() === authUser.id;
@@ -101,7 +125,9 @@ uploadsRouter.get("/:filename", requireAuth, async (req, res, next) => {
     const matchedResponse = participation.normalResponses?.find(
       (response) => response.file?.filename === filename,
     );
-    const downloadName = matchedResponse?.file?.originalName ?? filename;
+    if (matchedResponse?.file?.originalName) {
+      downloadName = matchedResponse.file.originalName;
+    }
 
     const absolutePath = path.resolve(process.cwd(), env.UPLOAD_DIR, filename);
 

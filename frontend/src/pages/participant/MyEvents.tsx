@@ -35,7 +35,7 @@ type ParticipationItem = {
   eventId: string;
   status: ParticipationStatus;
   eventType: EventType;
-  ticketId: string;
+  ticketId: string | null;
   createdAt: string;
   event: ParticipationEvent;
   merchPurchase?: MerchPurchase;
@@ -148,9 +148,11 @@ export default function MyEvents() {
                   <Link className="btn btn-outline-primary btn-sm" to={`/participant/events/${item.eventId}`}>
                     Open Event
                   </Link>
-                  <Link className="btn btn-outline-dark btn-sm" to={`/participant/tickets/${item.ticketId}`}>
-                    Ticket
-                  </Link>
+                  {item.ticketId ? (
+                    <Link className="btn btn-outline-dark btn-sm" to={`/participant/tickets/${item.ticketId}`}>
+                      Ticket
+                    </Link>
+                  ) : null}
                   {canCancel(item.status) ? (
                     <Button
                       variant="outline-danger"
@@ -174,6 +176,11 @@ export default function MyEvents() {
                 <div>
                   <strong>Joined:</strong> {formatDate(item.createdAt)}
                 </div>
+                {!item.ticketId ? (
+                  <div>
+                    <strong>Ticket:</strong> pending approval
+                  </div>
+                ) : null}
                 {item.merchPurchase ? (
                   <div>
                     <strong>Purchase:</strong> {item.merchPurchase.label} x{item.merchPurchase.quantity}

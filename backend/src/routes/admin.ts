@@ -54,6 +54,12 @@ type OrganizerRegistrationDoc = {
   }>;
 };
 
+type OrganizerPaymentDoc = {
+  _id: ObjectId;
+  registrationId: ObjectId;
+  proofUrl?: string;
+};
+
 function toOrganizerResponse(user: UserDoc) {
   return {
     id: user._id.toString(),
@@ -117,6 +123,20 @@ function collectUploadedFilenames(
         filenames.add(filename);
       }
     }
+  }
+
+  return [...filenames];
+}
+
+function collectPaymentProofFilenames(payments: OrganizerPaymentDoc[]): string[] {
+  const filenames = new Set<string>();
+
+  for (const payment of payments) {
+    const proofUrl = payment.proofUrl?.trim();
+    if (!proofUrl) continue;
+    const match = proofUrl.match(/\/api\/uploads\/([^/?#]+)$/i);
+    if (!match?.[1]) continue;
+    filenames.add(match[1]);
   }
 
   return [...filenames];
@@ -500,7 +520,7 @@ adminRouter.delete("/organizers/:organizerId", async (req, res, next) => {
       collections.registrations,
     );
     const tickets = db.collection(collections.tickets);
-    const payments = db.collection(collections.payments);
+    const payments = db.collection<OrganizerPaymentDoc>(collections.payments);
     const attendances = db.collection(collections.attendances);
     const resetRequests = db.collection(collections.organizerPasswordResetRequests);
     const announcements = db.collection(collections.announcements);
@@ -522,7 +542,22 @@ adminRouter.delete("/organizers/:organizerId", async (req, res, next) => {
     const registrationIds = organizerRegistrations.map(
       (registration) => registration._id,
     );
-    const uploadedFilenames = collectUploadedFilenames(organizerRegistrations);
+    const organizerPayments =
+      registrationIds.length > 0
+        ? await payments
+            .find(
+              { registrationId: { $in: registrationIds } },
+              { projection: { _id: 1, registrationId: 1, proofUrl: 1 } },
+            )
+            .toArray()
+        : [];
+
+    const uploadedFilenames = Array.from(
+      new Set([
+        ...collectUploadedFilenames(organizerRegistrations),
+        ...collectPaymentProofFilenames(organizerPayments),
+      ]),
+    );
 
     if (registrationIds.length > 0) {
       await payments.deleteMany({ registrationId: { $in: registrationIds } });

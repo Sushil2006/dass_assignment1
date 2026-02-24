@@ -18,6 +18,8 @@ export const participationsRouter = Router();
 type EventType = "NORMAL" | "MERCH";
 type PersistedEventStatus = "DRAFT" | "PUBLISHED" | "CLOSED" | "COMPLETED";
 type ParticipationStatus = "pending" | "confirmed" | "cancelled" | "rejected";
+type PaymentStatus = "pending" | "approved" | "rejected";
+type PaymentMethod = "upi" | "bank_transfer" | "cash" | "card" | "other";
 
 type NormalFormFieldType =
   | "text"
@@ -103,9 +105,19 @@ type StoredParticipationDoc = {
   createdAt: Date;
   updatedAt: Date;
   eventType: EventType;
-  ticketId: string;
+  ticketId?: string;
   normalResponses?: StoredNormalResponse[] | undefined;
   merchPurchase?: MerchPurchase | undefined;
+};
+
+type StoredPaymentDoc = {
+  _id: ObjectId;
+  registrationId: ObjectId;
+  method: PaymentMethod;
+  amount: number;
+  proofUrl?: string;
+  status: PaymentStatus;
+  createdAt: Date;
 };
 
 type ParticipantUserDoc = {
@@ -130,6 +142,13 @@ const purchaseBodySchema = z.object({
   eventId: z.string().trim().min(1),
   sku: z.string().trim().min(1).max(80),
   quantity: z.coerce.number().int().min(1).max(100).default(1),
+  method: z
+    .enum(["upi", "bank_transfer", "cash", "card", "other"])
+    .default("upi"),
+});
+
+const resolveMerchPaymentSchema = z.object({
+  decision: z.enum(["approve", "reject"]),
 });
 
 const upload = multer({
@@ -391,7 +410,7 @@ function toParticipationResponse(participation: StoredParticipationDoc) {
     userId: participation.userId.toString(),
     eventType: participation.eventType,
     status: participation.status,
-    ticketId: participation.ticketId,
+    ticketId: participation.ticketId ?? null,
     createdAt: participation.createdAt,
     updatedAt: participation.updatedAt,
     normalResponses: participation.normalResponses,
@@ -411,12 +430,31 @@ function toTicketResponse(ticket: StoredTicketDoc) {
   };
 }
 
+function buildProofUrl(filename: string): string {
+  return `/api/uploads/${filename}`;
+}
+
+function toPaymentResponse(payment: StoredPaymentDoc) {
+  return {
+    id: payment._id.toString(),
+    registrationId: payment.registrationId.toString(),
+    status: payment.status,
+    method: payment.method,
+    amount: payment.amount,
+    proofUrl: payment.proofUrl ?? null,
+    createdAt: payment.createdAt,
+  };
+}
+
 async function restockMerchIfNeeded(params: {
   events: Collection<StoredEventDoc>;
   event: StoredEventDoc;
   participation: StoredParticipationDoc;
   now: Date;
 }) {
+  // Stock is decremented only after merch payment approval (ticket issued).
+  // Pending or rejected orders without a ticket should not alter stock.
+  if (!params.participation.ticketId) return;
   if (!params.participation.merchPurchase || !params.event.merchConfig) return;
 
   const targetSku = params.participation.merchPurchase.sku;
@@ -687,6 +725,7 @@ participationsRouter.patch(
         collections.registrations,
       );
       const events = db.collection<StoredEventDoc>(collections.events);
+      const payments = db.collection<StoredPaymentDoc>(collections.payments);
 
       const participation = await participations.findOne({
         _id: participationId,
@@ -714,6 +753,10 @@ participationsRouter.patch(
       await participations.updateOne(
         { _id: participation._id, userId: participantId },
         { $set: { status: "cancelled", updatedAt: now } },
+      );
+      await payments.updateOne(
+        { registrationId: participation._id, status: "pending" },
+        { $set: { status: "rejected" } },
       );
 
       await restockMerchIfNeeded({ events, event, participation, now });
@@ -755,6 +798,7 @@ participationsRouter.patch(
         collections.registrations,
       );
       const events = db.collection<StoredEventDoc>(collections.events);
+      const payments = db.collection<StoredPaymentDoc>(collections.payments);
 
       const participation = await participations.findOne({ _id: participationId });
       if (!participation) {
@@ -787,6 +831,10 @@ participationsRouter.patch(
         { _id: participation._id },
         { $set: { status: "rejected", updatedAt: now } },
       );
+      await payments.updateOne(
+        { registrationId: participation._id, status: "pending" },
+        { $set: { status: "rejected" } },
+      );
 
       await restockMerchIfNeeded({ events, event, participation, now });
 
@@ -803,33 +851,52 @@ participationsRouter.patch(
   },
 );
 
-// participant purchases merch variant and reserves stock before ticket issue
+// participant submits merch order + payment proof; order starts as pending approval
 participationsRouter.post(
   "/purchase",
   requireAuth,
   requireRole("participant"),
+  upload.single("paymentProof"),
   async (req, res, next) => {
+    const uploadedFiles = req.file ? [req.file] : [];
+
     try {
       const authUser = req.user;
       if (!authUser) {
-        return res.status(401).json({ error: { message: "Not authenticated" } });
+        return rejectWithCleanup(res, 401, "Not authenticated", uploadedFiles);
       }
 
       const participantId = parseObjectId(authUser.id);
       if (!participantId) {
-        return res.status(401).json({ error: { message: "Not authenticated" } });
+        return rejectWithCleanup(res, 401, "Not authenticated", uploadedFiles);
       }
 
       const parsed = purchaseBodySchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({
-          error: { message: "Invalid request", details: parsed.error.flatten() },
-        });
+        return rejectWithCleanup(res, 400, "Invalid request", uploadedFiles);
+      }
+
+      if (!req.file) {
+        return rejectWithCleanup(
+          res,
+          400,
+          "Payment proof image is required",
+          uploadedFiles,
+        );
+      }
+
+      if (!req.file.mimetype.startsWith("image/")) {
+        return rejectWithCleanup(
+          res,
+          400,
+          "Payment proof must be an image file",
+          uploadedFiles,
+        );
       }
 
       const eventId = parseObjectId(parsed.data.eventId);
       if (!eventId) {
-        return res.status(400).json({ error: { message: "Invalid event id" } });
+        return rejectWithCleanup(res, 400, "Invalid event id", uploadedFiles);
       }
 
       const db = getDb();
@@ -837,7 +904,7 @@ participationsRouter.post(
       const participations = db.collection<StoredParticipationDoc>(
         collections.registrations,
       );
-      const tickets = db.collection<StoredTicketDoc>(collections.tickets);
+      const payments = db.collection<StoredPaymentDoc>(collections.payments);
       const users = db.collection<ParticipantUserDoc>(collections.users);
 
       const participant = await users.findOne({
@@ -845,23 +912,31 @@ participationsRouter.post(
         role: "participant",
       });
       if (!participant) {
-        return res.status(404).json({ error: { message: "Participant not found" } });
+        return rejectWithCleanup(
+          res,
+          404,
+          "Participant not found",
+          uploadedFiles,
+        );
       }
 
       const event = await events.findOne({ _id: eventId });
       if (!event) {
-        return res.status(404).json({ error: { message: "Event not found" } });
+        return rejectWithCleanup(res, 404, "Event not found", uploadedFiles);
       }
 
       if (event.type !== "MERCH") {
-        return res.status(400).json({
-          error: { message: "This endpoint only supports MERCH events" },
-        });
+        return rejectWithCleanup(
+          res,
+          400,
+          "This endpoint only supports MERCH events",
+          uploadedFiles,
+        );
       }
 
       const availabilityError = validateParticipationWindow(event, new Date());
       if (availabilityError) {
-        return res.status(400).json({ error: { message: availabilityError } });
+        return rejectWithCleanup(res, 400, availabilityError, uploadedFiles);
       }
 
       if (
@@ -870,9 +945,12 @@ participationsRouter.post(
           participantType: participant.participantType ?? null,
         })
       ) {
-        return res
-          .status(403)
-          .json({ error: { message: "You are not eligible for this event" } });
+        return rejectWithCleanup(
+          res,
+          403,
+          "You are not eligible for this event",
+          uploadedFiles,
+        );
       }
 
       const existingParticipation = await participations.findOne({
@@ -881,11 +959,12 @@ participationsRouter.post(
         status: { $nin: inactiveParticipationStatuses },
       });
       if (existingParticipation) {
-        return res.status(409).json({
-          error: {
-            message: "You already have an active participation for this event",
-          },
-        });
+        return rejectWithCleanup(
+          res,
+          409,
+          "You already have an active participation for this event",
+          uploadedFiles,
+        );
       }
 
       const activeCount = await participations.countDocuments({
@@ -893,37 +972,229 @@ participationsRouter.post(
         status: { $nin: inactiveParticipationStatuses },
       });
       if (activeCount >= event.regLimit) {
-        return res.status(409).json({ error: { message: "Registration limit reached" } });
+        return rejectWithCleanup(
+          res,
+          409,
+          "Registration limit reached",
+          uploadedFiles,
+        );
       }
 
       if (!event.merchConfig) {
-        return res
-          .status(400)
-          .json({ error: { message: "Merch config is missing for this event" } });
+        return rejectWithCleanup(
+          res,
+          400,
+          "Merch config is missing for this event",
+          uploadedFiles,
+        );
       }
 
       if (parsed.data.quantity > event.merchConfig.perParticipantLimit) {
-        return res.status(400).json({
-          error: {
-            message: "Requested quantity exceeds per participant purchase limit",
-          },
-        });
+        return rejectWithCleanup(
+          res,
+          400,
+          "Requested quantity exceeds per participant purchase limit",
+          uploadedFiles,
+        );
       }
 
       const variant = event.merchConfig.variants.find(
         (entry) => entry.sku === parsed.data.sku,
       );
       if (!variant) {
-        return res.status(400).json({ error: { message: "Invalid merch variant sku" } });
+        return rejectWithCleanup(
+          res,
+          400,
+          "Invalid merch variant sku",
+          uploadedFiles,
+        );
       }
 
       if (variant.stock < parsed.data.quantity) {
-        return res.status(409).json({ error: { message: "Requested stock unavailable" } });
+        return rejectWithCleanup(
+          res,
+          409,
+          "Requested stock unavailable",
+          uploadedFiles,
+        );
+      }
+
+      const unitPrice = Math.max(0, event.regFee + (variant.priceDelta ?? 0));
+      const totalAmount = unitPrice * parsed.data.quantity;
+      const now = new Date();
+      const participationId = new ObjectId();
+
+      const participation: StoredParticipationDoc = {
+        _id: participationId,
+        eventId,
+        userId: participantId,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+        eventType: "MERCH",
+        merchPurchase: {
+          sku: variant.sku,
+          label: variant.label,
+          quantity: parsed.data.quantity,
+          unitPrice,
+          totalAmount,
+        },
+      };
+
+      const payment: StoredPaymentDoc = {
+        _id: new ObjectId(),
+        registrationId: participationId,
+        method: parsed.data.method,
+        amount: totalAmount,
+        proofUrl: buildProofUrl(req.file.filename),
+        status: "pending",
+        createdAt: now,
+      };
+
+      await participations.insertOne(participation);
+      await payments.insertOne(payment);
+
+      return res.status(201).json({
+        participation: toParticipationResponse(participation),
+        payment: toPaymentResponse(payment),
+      });
+    } catch (err) {
+      await cleanupUploadedFiles(uploadedFiles);
+      return next(err);
+    }
+  },
+);
+
+// organizer/admin approves or rejects pending merch payment
+participationsRouter.patch(
+  "/:participationId/payment",
+  requireAuth,
+  requireRole("organizer", "admin"),
+  async (req, res, next) => {
+    try {
+      const authUser = req.user;
+      if (!authUser) {
+        return res.status(401).json({ error: { message: "Not authenticated" } });
+      }
+
+      const participationId = parseObjectId(req.params.participationId);
+      if (!participationId) {
+        return res
+          .status(400)
+          .json({ error: { message: "Invalid participation id" } });
+      }
+
+      const parsed = resolveMerchPaymentSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: { message: "Invalid request", details: parsed.error.flatten() },
+        });
+      }
+
+      const db = getDb();
+      const events = db.collection<StoredEventDoc>(collections.events);
+      const participations = db.collection<StoredParticipationDoc>(
+        collections.registrations,
+      );
+      const payments = db.collection<StoredPaymentDoc>(collections.payments);
+      const tickets = db.collection<StoredTicketDoc>(collections.tickets);
+      const users = db.collection<ParticipantUserDoc>(collections.users);
+
+      const participation = await participations.findOne({ _id: participationId });
+      if (!participation) {
+        return res
+          .status(404)
+          .json({ error: { message: "Participation not found" } });
+      }
+
+      if (participation.eventType !== "MERCH" || !participation.merchPurchase) {
+        return res.status(400).json({
+          error: { message: "Payment approval is only available for MERCH orders" },
+        });
+      }
+
+      const event = await events.findOne({ _id: participation.eventId });
+      if (!event) {
+        return res.status(404).json({ error: { message: "Event not found" } });
+      }
+
+      if (authUser.role === "organizer") {
+        const organizerId = parseObjectId(authUser.id);
+        if (!organizerId || event.organizerId.toString() !== organizerId.toString()) {
+          return res.status(403).json({ error: { message: "Forbidden" } });
+        }
+      }
+
+      const payment = await payments.findOne({ registrationId: participation._id });
+      if (!payment) {
+        return res
+          .status(404)
+          .json({ error: { message: "Payment record not found" } });
+      }
+
+      if (payment.status !== "pending") {
+        return res.status(409).json({
+          error: { message: "Payment has already been resolved" },
+        });
+      }
+
+      if (participation.status !== "pending") {
+        return res.status(409).json({
+          error: { message: "Participation is no longer in pending state" },
+        });
+      }
+
+      const now = new Date();
+
+      if (parsed.data.decision === "reject") {
+        await participations.updateOne(
+          { _id: participation._id },
+          { $set: { status: "rejected", updatedAt: now } },
+        );
+        await payments.updateOne(
+          { _id: payment._id },
+          { $set: { status: "rejected" } },
+        );
+
+        return res.json({
+          participation: toParticipationResponse({
+            ...participation,
+            status: "rejected",
+            updatedAt: now,
+          }),
+          payment: toPaymentResponse({
+            ...payment,
+            status: "rejected",
+          }),
+        });
+      }
+
+      if (!event.merchConfig) {
+        return res
+          .status(409)
+          .json({ error: { message: "Merch config is missing for this event" } });
+      }
+
+      const targetSku = participation.merchPurchase.sku;
+      const requestedQty = participation.merchPurchase.quantity;
+      const variant = event.merchConfig.variants.find(
+        (entry) => entry.sku === targetSku,
+      );
+      if (!variant) {
+        return res.status(409).json({
+          error: { message: "Merch variant no longer exists for this order" },
+        });
+      }
+
+      if (variant.stock < requestedQty) {
+        return res.status(409).json({
+          error: { message: "Insufficient stock to approve this order" },
+        });
       }
 
       const nextVariants = event.merchConfig.variants.map((entry) =>
-        entry.sku === variant.sku
-          ? { ...entry, stock: entry.stock - parsed.data.quantity }
+        entry.sku === targetSku
+          ? { ...entry, stock: entry.stock - requestedQty }
           : entry,
       );
       const nextTotalStock = nextVariants.reduce(
@@ -931,9 +1202,8 @@ participationsRouter.post(
         0,
       );
 
-      const now = new Date();
       await events.updateOne(
-        { _id: eventId },
+        { _id: event._id },
         {
           $set: {
             merchConfig: {
@@ -946,50 +1216,56 @@ participationsRouter.post(
         },
       );
 
-      const participationId = new ObjectId();
       const ticket = buildTicketDoc({
-        eventId,
-        userId: participantId,
-        participationId,
+        eventId: event._id,
+        userId: participation.userId,
+        participationId: participation._id,
         eventType: "MERCH",
         now,
       });
 
-      const unitPrice = Math.max(0, event.regFee + (variant.priceDelta ?? 0));
-      const totalAmount = unitPrice * parsed.data.quantity;
-
-      const participation: StoredParticipationDoc = {
-        _id: participationId,
-        eventId,
-        userId: participantId,
-        status: "confirmed",
-        createdAt: now,
-        updatedAt: now,
-        eventType: "MERCH",
-        ticketId: ticket.ticketId,
-        merchPurchase: {
-          sku: variant.sku,
-          label: variant.label,
-          quantity: parsed.data.quantity,
-          unitPrice,
-          totalAmount,
-        },
-      };
-
-      await participations.insertOne(participation);
       await tickets.insertOne(ticket);
+      await participations.updateOne(
+        { _id: participation._id },
+        {
+          $set: {
+            status: "confirmed",
+            ticketId: ticket.ticketId,
+            updatedAt: now,
+          },
+        },
+      );
+      await payments.updateOne(
+        { _id: payment._id },
+        { $set: { status: "approved" } },
+      );
 
-      await sendTicketEmailSafe({
-        toEmail: participant.email,
-        toName: participant.name,
-        eventName: event.name,
-        eventType: event.type,
-        ticketId: ticket.ticketId,
-        qrPayload: ticket.qrPayload,
+      const participant = await users.findOne({
+        _id: participation.userId,
+        role: "participant",
       });
+      if (participant) {
+        await sendTicketEmailSafe({
+          toEmail: participant.email,
+          toName: participant.name,
+          eventName: event.name,
+          eventType: event.type,
+          ticketId: ticket.ticketId,
+          qrPayload: ticket.qrPayload,
+        });
+      }
 
-      return res.status(201).json({
-        participation: toParticipationResponse(participation),
+      return res.json({
+        participation: toParticipationResponse({
+          ...participation,
+          status: "confirmed",
+          ticketId: ticket.ticketId,
+          updatedAt: now,
+        }),
+        payment: toPaymentResponse({
+          ...payment,
+          status: "approved",
+        }),
         ticket: toTicketResponse(ticket),
       });
     } catch (err) {

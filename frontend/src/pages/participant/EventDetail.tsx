@@ -58,7 +58,7 @@ type ParticipantEvent = {
 type ParticipantParticipation = {
   id: string;
   status: ParticipationStatus;
-  ticketId: string;
+  ticketId: string | null;
   eventType: EventType;
 };
 
@@ -70,6 +70,7 @@ type EventDetailResponse = {
 type ParticipationCreateResponse = {
   participation?: { id: string; status: ParticipationStatus };
   ticket?: { id: string };
+  payment?: { status: "pending" | "approved" | "rejected" };
 };
 
 async function readErrorMessage(res: Response): Promise<string> {
@@ -110,6 +111,10 @@ export default function EventDetail() {
 
   const [selectedSku, setSelectedSku] = useState("");
   const [quantity, setQuantity] = useState("1");
+  const [paymentMethod, setPaymentMethod] = useState<
+    "upi" | "bank_transfer" | "cash" | "card" | "other"
+  >("upi");
+  const [paymentProof, setPaymentProof] = useState<File | null>(null);
 
   const event = detail?.event;
   const participation = detail?.myParticipation ?? null;
@@ -192,25 +197,37 @@ export default function EventDetail() {
   async function submitMerchPurchase(eventForm: React.FormEvent<HTMLFormElement>) {
     eventForm.preventDefault();
     if (!event) return;
+    if (!paymentProof) {
+      setError("Payment proof image is required.");
+      return;
+    }
 
     setSubmittingPurchase(true);
     setError(null);
     setSuccess(null);
 
     try {
+      const formData = new FormData();
+      formData.append("eventId", event.id);
+      formData.append("sku", selectedSku);
+      formData.append("quantity", quantity);
+      formData.append("method", paymentMethod);
+      formData.append("paymentProof", paymentProof);
+
       const res = await apiFetch("/api/participations/purchase", {
         method: "POST",
-        body: JSON.stringify({
-          eventId: event.id,
-          sku: selectedSku,
-          quantity: Number(quantity),
-        }),
+        body: formData,
       });
       if (!res.ok) throw new Error(await readErrorMessage(res));
 
       const data = (await res.json()) as ParticipationCreateResponse;
       setCreatedTicketId(data.ticket?.id ?? null);
-      setSuccess("Purchase submitted and ticket generated.");
+      if (data.ticket?.id) {
+        setSuccess("Purchase approved and ticket generated.");
+      } else {
+        setSuccess("Purchase submitted for organizer approval.");
+      }
+      setPaymentProof(null);
       await loadEvent();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to purchase");
@@ -297,7 +314,11 @@ export default function EventDetail() {
           {showExistingParticipationAlert ? (
             <Alert variant="info">
               You already have an active participation ({participation.status}).{" "}
-              <Link to={`/participant/tickets/${participation.ticketId}`}>Open Ticket</Link>
+              {participation.ticketId ? (
+                <Link to={`/participant/tickets/${participation.ticketId}`}>Open Ticket</Link>
+              ) : (
+                <span>Ticket will be issued after payment approval.</span>
+              )}
             </Alert>
           ) : null}
 
@@ -473,6 +494,44 @@ export default function EventDetail() {
                           value={quantity}
                           onChange={(currentEvent) => setQuantity(currentEvent.target.value)}
                           required
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={6}>
+                      <Form.Group controlId="merch-payment-method">
+                        <Form.Label>Payment Method</Form.Label>
+                        <Form.Select
+                          value={paymentMethod}
+                          onChange={(currentEvent) =>
+                            setPaymentMethod(
+                              currentEvent.target.value as
+                                | "upi"
+                                | "bank_transfer"
+                                | "cash"
+                                | "card"
+                                | "other",
+                            )
+                          }
+                        >
+                          <option value="upi">UPI</option>
+                          <option value="bank_transfer">Bank Transfer</option>
+                          <option value="cash">Cash</option>
+                          <option value="card">Card</option>
+                          <option value="other">Other</option>
+                        </Form.Select>
+                      </Form.Group>
+                    </Col>
+                    <Col md={6}>
+                      <Form.Group controlId="merch-payment-proof">
+                        <Form.Label>Payment Proof (image)</Form.Label>
+                        <Form.Control
+                          type="file"
+                          accept="image/*"
+                          required
+                          onChange={(currentEvent) => {
+                            const input = currentEvent.target as HTMLInputElement;
+                            setPaymentProof(input.files?.[0] ?? null);
+                          }}
                         />
                       </Form.Group>
                     </Col>

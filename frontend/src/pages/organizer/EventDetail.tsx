@@ -139,6 +139,7 @@ function statusBadgeVariant(status: string):
   | "danger"
   | "dark"
   | "primary" {
+  if (status === "approved") return "success";
   if (status === "confirmed") return "success";
   if (status === "pending") return "warning";
   if (status === "cancelled") return "secondary";
@@ -161,7 +162,9 @@ export default function OrganizerEventDetail() {
   const { eventId = "" } = useParams<{ eventId: string }>();
   const [loading, setLoading] = useState(true);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
+  const [resolvingPaymentId, setResolvingPaymentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [detail, setDetail] = useState<EventDetailResponse | null>(null);
   const [participantQuery, setParticipantQuery] = useState("");
   const [participantStatusFilter, setParticipantStatusFilter] = useState<
@@ -180,6 +183,16 @@ export default function OrganizerEventDetail() {
   const event = detail?.event ?? null;
   const analytics = detail?.analytics ?? null;
   const participants = useMemo(() => detail?.participants ?? [], [detail?.participants]);
+  const merchOrders = useMemo(
+    () =>
+      participants.filter(
+        (entry) =>
+          entry.eventType === "MERCH" &&
+          entry.merchPurchase !== null &&
+          entry.payment !== null,
+      ),
+    [participants],
+  );
   const filteredParticipants = useMemo(() => {
     const query = participantQuery.trim().toLowerCase();
 
@@ -287,6 +300,38 @@ export default function OrganizerEventDetail() {
     }
   }
 
+  async function resolveMerchPayment(
+    participationId: string,
+    decision: "approve" | "reject",
+  ) {
+    setResolvingPaymentId(participationId);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await apiFetch(`/api/participations/${participationId}/payment`, {
+        method: "PATCH",
+        body: JSON.stringify({ decision }),
+      });
+      if (!res.ok) throw new Error(await readErrorMessage(res));
+
+      setSuccess(
+        decision === "approve"
+          ? "Payment approved and ticket issued."
+          : "Payment rejected.",
+      );
+      await loadDetail();
+    } catch (resolveError) {
+      setError(
+        resolveError instanceof Error
+          ? resolveError.message
+          : "Failed to resolve payment",
+      );
+    } finally {
+      setResolvingPaymentId(null);
+    }
+  }
+
   return (
     <Container className="py-4">
       <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -311,6 +356,7 @@ export default function OrganizerEventDetail() {
       </div>
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
+      {success ? <Alert variant="success">{success}</Alert> : null}
 
       {loading ? (
         <div className="d-flex align-items-center gap-2">
@@ -541,6 +587,14 @@ export default function OrganizerEventDetail() {
                               ? `${entry.payment.status} | ${entry.payment.method} | ${formatCurrency(entry.payment.amount)}`
                               : "not available"}
                           </div>
+                          {entry.payment?.proofUrl ? (
+                            <div>
+                              <strong>Proof:</strong>{" "}
+                              <a href={entry.payment.proofUrl} target="_blank" rel="noreferrer">
+                                open proof
+                              </a>
+                            </div>
+                          ) : null}
                           <div>
                             <strong>Attendance:</strong>{" "}
                             {entry.attendance.isPresent
@@ -574,6 +628,97 @@ export default function OrganizerEventDetail() {
                     </Card.Body>
                   </Card>
                 ))
+              )}
+            </div>
+          </Tab>
+
+          <Tab eventKey="merch-orders" title={`Merch Orders (${merchOrders.length})`}>
+            <div className="mt-3 d-grid gap-3">
+              {event.type !== "MERCH" ? (
+                <Card className="border">
+                  <Card.Body className="text-muted">
+                    Merch payment workflow is only available for MERCH events.
+                  </Card.Body>
+                </Card>
+              ) : merchOrders.length === 0 ? (
+                <Card className="border">
+                  <Card.Body className="text-muted">No merch orders yet.</Card.Body>
+                </Card>
+              ) : (
+                merchOrders.map((order) => {
+                  const busy = resolvingPaymentId === order.id;
+
+                  return (
+                    <Card className="border" key={`merch-order-${order.id}`}>
+                      <Card.Body>
+                        <div className="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                          <div>
+                            <h3 className="h6 mb-1">{order.participant.name}</h3>
+                            <div className="small text-muted mb-1">
+                              {order.participant.email ?? "email unavailable"}
+                            </div>
+                            <div className="small text-muted">
+                              <strong>Order:</strong> {order.merchPurchase?.label} x
+                              {order.merchPurchase?.quantity}
+                            </div>
+                            <div className="small text-muted">
+                              <strong>Amount:</strong>{" "}
+                              {order.payment ? formatCurrency(order.payment.amount) : "-"}
+                            </div>
+                            <div className="small text-muted">
+                              <strong>Payment:</strong> {order.payment?.status ?? "-"} (
+                              {order.payment?.method ?? "-"})
+                            </div>
+                            <div className="small text-muted">
+                              <strong>Ticket:</strong> {order.ticketId ?? "not issued"}
+                            </div>
+                          </div>
+
+                          <div className="d-flex flex-column gap-2 align-items-end">
+                            {order.payment?.proofUrl ? (
+                              <a
+                                className="btn btn-outline-secondary btn-sm"
+                                href={order.payment.proofUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                View Proof
+                              </a>
+                            ) : null}
+                            {order.payment?.status === "pending" ? (
+                              <div className="d-flex gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline-success"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    void resolveMerchPayment(order.id, "approve");
+                                  }}
+                                >
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline-danger"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    void resolveMerchPayment(order.id, "reject");
+                                  }}
+                                >
+                                  Reject
+                                </Button>
+                              </div>
+                            ) : (
+                              <Badge bg={statusBadgeVariant(order.payment?.status ?? "pending")}>
+                                {order.payment?.status ?? "pending"}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      </Card.Body>
+                    </Card>
+                  );
+                })
               )}
             </div>
           </Tab>

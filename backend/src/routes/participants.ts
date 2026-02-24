@@ -55,7 +55,7 @@ type StoredParticipationDoc = {
   createdAt: Date;
   updatedAt: Date;
   eventType: EventType;
-  ticketId: string;
+  ticketId?: string;
   normalResponses?: StoredNormalResponse[] | undefined;
   merchPurchase?: MerchPurchase | undefined;
 };
@@ -889,7 +889,7 @@ function toParticipationItemResponse(
     userId: participation.userId.toString(),
     status: participation.status,
     eventType: participation.eventType,
-    ticketId: participation.ticketId,
+    ticketId: participation.ticketId ?? null,
     createdAt: participation.createdAt,
     updatedAt: participation.updatedAt,
     event: toParticipantEventResponse(event, organizerName),
