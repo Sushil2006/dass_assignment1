@@ -3,6 +3,10 @@ import { type Collection, ObjectId } from "mongodb";
 import { z } from "zod";
 import { getDb } from "../db/client";
 import { collections } from "../db/collections";
+import {
+  getOrganizerCategoryLabel,
+  normalizeOrganizerCategory,
+} from "../constants/organizerCategories";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { isParticipantEligibleForEvent } from "../utils/eligibility";
 
@@ -128,6 +132,14 @@ type OrganizerUserDoc = {
   isDisabled?: boolean;
 };
 
+type PublicFollowedOrganizerResponse = {
+  id: string;
+  name: string;
+  category: string | null;
+  categoryLabel: string | null;
+  description: string | null;
+};
+
 const publicPersistedStatuses: PersistedEventStatus[] = [
   "PUBLISHED",
   "CLOSED",
@@ -189,7 +201,10 @@ function splitFallbackName(name: string): { firstName: string; lastName: string 
   };
 }
 
-function toParticipantProfileResponse(user: ParticipantUserDoc) {
+function toParticipantProfileResponse(
+  user: ParticipantUserDoc,
+  followedOrganizers: PublicFollowedOrganizerResponse[],
+) {
   const fallback = splitFallbackName(user.name);
   const firstName = user.firstName ?? fallback.firstName;
   const lastName = user.lastName ?? fallback.lastName;
@@ -208,16 +223,22 @@ function toParticipantProfileResponse(user: ParticipantUserDoc) {
     followedOrganizerIds: (user.followedOrganizerIds ?? []).map((id) =>
       id.toString(),
     ),
+    followedOrganizers,
     onboardingCompleted: user.onboardingCompleted ?? false,
     createdAt: user.createdAt,
   };
 }
 
 function toPublicFollowedOrganizerResponse(organizer: OrganizerUserDoc) {
+  const normalizedCategory = normalizeOrganizerCategory(organizer.organizerCategory);
+
   return {
     id: organizer._id.toString(),
     name: organizer.name,
-    category: organizer.organizerCategory ?? null,
+    category: normalizedCategory,
+    categoryLabel: normalizedCategory
+      ? getOrganizerCategoryLabel(normalizedCategory)
+      : null,
     description: organizer.organizerDescription ?? null,
   };
 }
@@ -277,6 +298,50 @@ async function normalizeParticipantFollows(params: {
   };
 }
 
+async function listFollowedOrganizers(params: {
+  users: Collection<ParticipantUserDoc | OrganizerUserDoc>;
+  followedOrganizerIds: ObjectId[];
+}): Promise<PublicFollowedOrganizerResponse[]> {
+  if (params.followedOrganizerIds.length === 0) {
+    return [];
+  }
+
+  const organizerDocs = await params.users
+    .find({
+      _id: { $in: params.followedOrganizerIds },
+      role: "organizer",
+      isDisabled: { $ne: true },
+    })
+    .toArray();
+
+  const organizerById = new Map(
+    organizerDocs
+      .filter(
+        (organizer): organizer is OrganizerUserDoc =>
+          organizer.role === "organizer",
+      )
+      .map((organizer) => [organizer._id.toString(), organizer]),
+  );
+
+  return params.followedOrganizerIds.flatMap((organizerId) => {
+    const organizer = organizerById.get(organizerId.toString());
+    if (!organizer) return [];
+    return [toPublicFollowedOrganizerResponse(organizer)];
+  });
+}
+
+async function buildParticipantProfileResponse(params: {
+  users: Collection<ParticipantUserDoc | OrganizerUserDoc>;
+  participant: ParticipantUserDoc;
+}) {
+  const followedOrganizers = await listFollowedOrganizers({
+    users: params.users,
+    followedOrganizerIds: params.participant.followedOrganizerIds ?? [],
+  });
+
+  return toParticipantProfileResponse(params.participant, followedOrganizers);
+}
+
 // participant gets own profile and stored onboarding preferences
 participantsRouter.get(
   "/me/profile",
@@ -311,9 +376,13 @@ participantsRouter.get(
         participants,
         participant,
       });
+      const profile = await buildParticipantProfileResponse({
+        users,
+        participant: normalizedParticipant,
+      });
 
       return res.json({
-        profile: toParticipantProfileResponse(normalizedParticipant),
+        profile,
       });
     } catch (err) {
       return next(err);
@@ -436,9 +505,13 @@ participantsRouter.patch(
         participants,
         participant: updated,
       });
+      const profile = await buildParticipantProfileResponse({
+        users,
+        participant: normalizedParticipant,
+      });
 
       return res.json({
-        profile: toParticipantProfileResponse(normalizedParticipant),
+        profile,
       });
     } catch (err) {
       return next(err);
@@ -524,9 +597,13 @@ participantsRouter.post(
         participants,
         participant: updated,
       });
+      const profile = await buildParticipantProfileResponse({
+        users,
+        participant: normalizedParticipant,
+      });
 
       return res.json({
-        profile: toParticipantProfileResponse(normalizedParticipant),
+        profile,
       });
     } catch (err) {
       return next(err);
@@ -587,9 +664,13 @@ participantsRouter.post(
         participants,
         participant: updated,
       });
+      const profile = await buildParticipantProfileResponse({
+        users,
+        participant: normalizedParticipant,
+      });
 
       return res.json({
-        profile: toParticipantProfileResponse(normalizedParticipant),
+        profile,
       });
     } catch (err) {
       return next(err);
@@ -642,9 +723,13 @@ participantsRouter.delete(
         participants,
         participant: updated,
       });
+      const profile = await buildParticipantProfileResponse({
+        users,
+        participant: normalizedParticipant,
+      });
 
       return res.json({
-        profile: toParticipantProfileResponse(normalizedParticipant),
+        profile,
       });
     } catch (err) {
       return next(err);
@@ -669,38 +754,31 @@ participantsRouter.get(
         return res.status(401).json({ error: { message: "Not authenticated" } });
       }
 
+      const participants = getDb().collection<ParticipantUserDoc>(collections.users);
       const users = getDb().collection<ParticipantUserDoc | OrganizerUserDoc>(
         collections.users,
       );
 
-      const participant = await users.findOne({
+      const participant = await participants.findOne({
         _id: participantId,
         role: "participant",
       });
-      if (!participant || participant.role !== "participant") {
+      if (!participant) {
         return res.status(404).json({ error: { message: "Participant not found" } });
       }
 
-      const followedIds = participant.followedOrganizerIds ?? [];
-      if (followedIds.length === 0) {
-        return res.json({ organizers: [] });
-      }
-
-      const organizers = await users
-        .find({
-          _id: { $in: followedIds },
-          role: "organizer",
-          isDisabled: { $ne: true },
-        })
-        .toArray();
+      const normalizedParticipant = await normalizeParticipantFollows({
+        users,
+        participants,
+        participant,
+      });
+      const organizers = await listFollowedOrganizers({
+        users,
+        followedOrganizerIds: normalizedParticipant.followedOrganizerIds ?? [],
+      });
 
       return res.json({
-        organizers: organizers
-          .filter(
-            (organizer): organizer is OrganizerUserDoc =>
-              organizer.role === "organizer",
-          )
-          .map(toPublicFollowedOrganizerResponse),
+        organizers,
       });
     } catch (err) {
       return next(err);

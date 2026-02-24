@@ -1,7 +1,10 @@
 import { randomBytes } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { Router } from "express";
 import { type Collection, ObjectId } from "mongodb";
 import { z } from "zod";
+import { env } from "../config/env";
 import { getDb } from "../db/client";
 import { collections } from "../db/collections";
 import type {
@@ -34,6 +37,21 @@ type AdminPasswordResetRequestResponse = {
   updatedAt: Date;
   resolvedAt: Date | null;
   adminComment: string | null;
+};
+
+type OrganizerEventDoc = {
+  _id: ObjectId;
+  organizerId: ObjectId;
+};
+
+type OrganizerRegistrationDoc = {
+  _id: ObjectId;
+  eventId: ObjectId;
+  normalResponses?: Array<{
+    file?: {
+      filename: string;
+    };
+  }>;
 };
 
 function toOrganizerResponse(user: UserDoc) {
@@ -85,6 +103,46 @@ function parseOrganizerId(rawId: string): ObjectId | null {
 function parsePasswordResetRequestId(rawId: string): ObjectId | null {
   if (!ObjectId.isValid(rawId)) return null;
   return new ObjectId(rawId);
+}
+
+function collectUploadedFilenames(
+  registrations: OrganizerRegistrationDoc[],
+): string[] {
+  const filenames = new Set<string>();
+
+  for (const registration of registrations) {
+    for (const response of registration.normalResponses ?? []) {
+      const filename = response.file?.filename?.trim();
+      if (filename) {
+        filenames.add(filename);
+      }
+    }
+  }
+
+  return [...filenames];
+}
+
+async function cleanupUploadedFiles(filenames: string[]): Promise<void> {
+  await Promise.all(
+    filenames.map(async (filename) => {
+      const trimmed = filename.trim();
+      if (!trimmed) return;
+
+      const safeFilename = path.basename(trimmed);
+      if (safeFilename !== trimmed) return;
+
+      const absolutePath = path.resolve(
+        process.cwd(),
+        env.UPLOAD_DIR,
+        safeFilename,
+      );
+      try {
+        await fs.unlink(absolutePath);
+      } catch {
+        // best-effort cleanup; ignore missing/inaccessible files
+      }
+    }),
+  );
 }
 
 function toAdminPasswordResetRequestResponse(params: {
@@ -437,20 +495,94 @@ adminRouter.delete("/organizers/:organizerId", async (req, res, next) => {
       return res.status(404).json({ error: { message: "Organizer not found" } });
     }
 
-    // do not allow hard delete if organizer already has events
-    const events = db.collection(collections.events);
-    const linkedEventCount = await events.countDocuments({ organizerId });
-    if (linkedEventCount > 0) {
-      return res.status(409).json({
-        error: {
-          message: "Organizer has events. Archive/disable instead of delete.",
-        },
-      });
+    const events = db.collection<OrganizerEventDoc>(collections.events);
+    const registrations = db.collection<OrganizerRegistrationDoc>(
+      collections.registrations,
+    );
+    const tickets = db.collection(collections.tickets);
+    const payments = db.collection(collections.payments);
+    const attendances = db.collection(collections.attendances);
+    const resetRequests = db.collection(collections.organizerPasswordResetRequests);
+    const announcements = db.collection(collections.announcements);
+
+    const organizerEvents = await events
+      .find({ organizerId }, { projection: { _id: 1, organizerId: 1 } })
+      .toArray();
+    const organizerEventIds = organizerEvents.map((event) => event._id);
+
+    const organizerRegistrations =
+      organizerEventIds.length > 0
+        ? await registrations
+            .find(
+              { eventId: { $in: organizerEventIds } },
+              { projection: { _id: 1, eventId: 1, normalResponses: 1 } },
+            )
+            .toArray()
+        : [];
+    const registrationIds = organizerRegistrations.map(
+      (registration) => registration._id,
+    );
+    const uploadedFilenames = collectUploadedFilenames(organizerRegistrations);
+
+    if (registrationIds.length > 0) {
+      await payments.deleteMany({ registrationId: { $in: registrationIds } });
     }
 
+    const ticketDeleteFilters: Record<string, unknown>[] = [];
+    if (organizerEventIds.length > 0) {
+      ticketDeleteFilters.push({ eventId: { $in: organizerEventIds } });
+    }
+    if (registrationIds.length > 0) {
+      ticketDeleteFilters.push({ participationId: { $in: registrationIds } });
+    }
+    if (ticketDeleteFilters.length === 1) {
+      await tickets.deleteMany(ticketDeleteFilters[0]);
+    } else if (ticketDeleteFilters.length > 1) {
+      await tickets.deleteMany({ $or: ticketDeleteFilters });
+    }
+
+    const attendanceDeleteFilters: Record<string, unknown>[] = [];
+    if (organizerEventIds.length > 0) {
+      attendanceDeleteFilters.push({ eventId: { $in: organizerEventIds } });
+    }
+    if (registrationIds.length > 0) {
+      attendanceDeleteFilters.push({
+        participationId: { $in: registrationIds },
+      });
+    }
+    if (attendanceDeleteFilters.length === 1) {
+      await attendances.deleteMany(attendanceDeleteFilters[0]);
+    } else if (attendanceDeleteFilters.length > 1) {
+      await attendances.deleteMany({ $or: attendanceDeleteFilters });
+    }
+
+    if (organizerEventIds.length > 0) {
+      await registrations.deleteMany({ eventId: { $in: organizerEventIds } });
+      await events.deleteMany({ organizerId });
+      await announcements.deleteMany({
+        $or: [{ organizerId }, { eventId: { $in: organizerEventIds } }],
+      });
+    } else {
+      await announcements.deleteMany({ organizerId });
+    }
+
+    await resetRequests.deleteMany({ organizerId });
+    await users.updateMany(
+      { role: "participant", followedOrganizerIds: organizerId },
+      { $pull: { followedOrganizerIds: organizerId } },
+    );
     await users.deleteOne({ _id: organizerId, role: "organizer" });
 
-    return res.json({ ok: true });
+    await cleanupUploadedFiles(uploadedFilenames);
+
+    return res.json({
+      ok: true,
+      deleted: {
+        events: organizerEventIds.length,
+        participations: registrationIds.length,
+        uploads: uploadedFilenames.length,
+      },
+    });
   } catch (err) {
     return next(err);
   }

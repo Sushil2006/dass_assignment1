@@ -167,8 +167,14 @@ export default function OrganizerEventDetail() {
   const [participantStatusFilter, setParticipantStatusFilter] = useState<
     "all" | ParticipationStatus
   >("all");
-  const [participantTypeFilter, setParticipantTypeFilter] = useState<
+  const [participantEventTypeFilter, setParticipantEventTypeFilter] = useState<
     "all" | EventType
+  >("all");
+  const [attendanceFilter, setAttendanceFilter] = useState<
+    "all" | "present" | "absent"
+  >("all");
+  const [institutionCategoryFilter, setInstitutionCategoryFilter] = useState<
+    "all" | "iiit" | "non-iiit"
   >("all");
 
   const event = detail?.event ?? null;
@@ -182,8 +188,28 @@ export default function OrganizerEventDetail() {
         return false;
       }
 
-      if (participantTypeFilter !== "all" && entry.eventType !== participantTypeFilter) {
+      if (
+        participantEventTypeFilter !== "all" &&
+        entry.eventType !== participantEventTypeFilter
+      ) {
         return false;
+      }
+
+      if (attendanceFilter === "present" && !entry.attendance.isPresent) {
+        return false;
+      }
+
+      if (attendanceFilter === "absent" && entry.attendance.isPresent) {
+        return false;
+      }
+
+      if (institutionCategoryFilter !== "all") {
+        const participantType = (entry.participant.participantType ?? "")
+          .trim()
+          .toLowerCase();
+        if (participantType !== institutionCategoryFilter) {
+          return false;
+        }
       }
 
       if (!query) return true;
@@ -201,7 +227,9 @@ export default function OrganizerEventDetail() {
   }, [
     participantQuery,
     participantStatusFilter,
-    participantTypeFilter,
+    participantEventTypeFilter,
+    attendanceFilter,
+    institutionCategoryFilter,
     participants,
   ]);
 
@@ -241,7 +269,7 @@ export default function OrganizerEventDetail() {
 
       const blob = await res.blob();
       const header = res.headers.get("content-disposition") ?? "";
-      const filenameMatch = header.match(/filename="?([^\"]+)"?/i);
+      const filenameMatch = header.match(/filename="?([^"]+)"?/i);
       const filename = filenameMatch?.[1] ?? "participants.csv";
 
       const url = URL.createObjectURL(blob);
@@ -354,7 +382,7 @@ export default function OrganizerEventDetail() {
               <Card className="border">
                 <Card.Body>
                   <Row className="g-2 align-items-end">
-                    <Col md={4}>
+                    <Col md={6} lg={3}>
                       <Form.Group controlId="participant-search">
                         <Form.Label>Search</Form.Label>
                         <Form.Control
@@ -366,7 +394,7 @@ export default function OrganizerEventDetail() {
                         />
                       </Form.Group>
                     </Col>
-                    <Col md={4}>
+                    <Col md={6} lg={3}>
                       <Form.Group controlId="participant-status-filter">
                         <Form.Label>Status</Form.Label>
                         <Form.Select
@@ -387,13 +415,13 @@ export default function OrganizerEventDetail() {
                         </Form.Select>
                       </Form.Group>
                     </Col>
-                    <Col md={4}>
+                    <Col md={6} lg={2}>
                       <Form.Group controlId="participant-type-filter">
                         <Form.Label>Event Type</Form.Label>
                         <Form.Select
-                          value={participantTypeFilter}
+                          value={participantEventTypeFilter}
                           onChange={(currentEvent) =>
-                            setParticipantTypeFilter(
+                            setParticipantEventTypeFilter(
                               currentEvent.target.value as "all" | EventType,
                             )
                           }
@@ -401,6 +429,46 @@ export default function OrganizerEventDetail() {
                           <option value="all">all</option>
                           <option value="NORMAL">NORMAL</option>
                           <option value="MERCH">MERCH</option>
+                        </Form.Select>
+                      </Form.Group>
+                    </Col>
+                    <Col md={6} lg={2}>
+                      <Form.Group controlId="participant-attendance-filter">
+                        <Form.Label>Attendance</Form.Label>
+                        <Form.Select
+                          value={attendanceFilter}
+                          onChange={(currentEvent) =>
+                            setAttendanceFilter(
+                              currentEvent.target.value as
+                                | "all"
+                                | "present"
+                                | "absent",
+                            )
+                          }
+                        >
+                          <option value="all">all</option>
+                          <option value="present">present</option>
+                          <option value="absent">absent</option>
+                        </Form.Select>
+                      </Form.Group>
+                    </Col>
+                    <Col md={6} lg={2}>
+                      <Form.Group controlId="participant-institution-filter">
+                        <Form.Label>Institution</Form.Label>
+                        <Form.Select
+                          value={institutionCategoryFilter}
+                          onChange={(currentEvent) =>
+                            setInstitutionCategoryFilter(
+                              currentEvent.target.value as
+                                | "all"
+                                | "iiit"
+                                | "non-iiit",
+                            )
+                          }
+                        >
+                          <option value="all">all</option>
+                          <option value="iiit">IIIT</option>
+                          <option value="non-iiit">Non-IIIT</option>
                         </Form.Select>
                       </Form.Group>
                     </Col>

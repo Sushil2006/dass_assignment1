@@ -3,6 +3,15 @@ import { Alert, Button, Card, Col, Container, Form, Row, Spinner } from "react-b
 import { Link } from "react-router-dom";
 import { apiFetch } from "../../lib/api";
 import ChangePassword from "../common/ChangePassword";
+import { organizerCategoryLabel } from "../../lib/organizerCategories";
+
+type FollowedOrganizer = {
+  id: string;
+  name: string;
+  category: string | null;
+  categoryLabel?: string | null;
+  description: string | null;
+};
 
 type ParticipantProfile = {
   id: string;
@@ -15,6 +24,7 @@ type ParticipantProfile = {
   contactNumber: string;
   interests: string[];
   followedOrganizerIds: string[];
+  followedOrganizers?: FollowedOrganizer[];
   onboardingCompleted: boolean;
   createdAt: string;
 };
@@ -59,6 +69,7 @@ export default function Profile() {
   const [collegeOrOrganization, setCollegeOrOrganization] = useState("");
   const [interestsText, setInterestsText] = useState("");
   const [followedOrganizerIds, setFollowedOrganizerIds] = useState<string[]>([]);
+  const [followedOrganizers, setFollowedOrganizers] = useState<FollowedOrganizer[]>([]);
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
 
   const loadProfile = useCallback(async () => {
@@ -82,6 +93,7 @@ export default function Profile() {
       setCollegeOrOrganization(profile.collegeOrOrganization ?? "");
       setInterestsText(interestsToText(profile.interests ?? []));
       setFollowedOrganizerIds(profile.followedOrganizerIds ?? []);
+      setFollowedOrganizers(profile.followedOrganizers ?? []);
       setOnboardingCompleted(Boolean(profile.onboardingCompleted));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load profile");
@@ -123,6 +135,7 @@ export default function Profile() {
       setCollegeOrOrganization(profile.collegeOrOrganization ?? "");
       setInterestsText(interestsToText(profile.interests ?? []));
       setFollowedOrganizerIds(profile.followedOrganizerIds ?? []);
+      setFollowedOrganizers(profile.followedOrganizers ?? []);
       setOnboardingCompleted(Boolean(profile.onboardingCompleted));
       setSuccess("Profile updated successfully.");
     } catch (saveError) {
@@ -153,6 +166,7 @@ export default function Profile() {
 
       setInterestsText(interestsToText(profile.interests ?? []));
       setFollowedOrganizerIds(profile.followedOrganizerIds ?? []);
+      setFollowedOrganizers(profile.followedOrganizers ?? []);
       setOnboardingCompleted(Boolean(profile.onboardingCompleted));
       setSuccess("Onboarding preferences saved.");
     } catch (submitError) {
@@ -303,7 +317,7 @@ export default function Profile() {
                   {onboardingCompleted ? "completed" : "not completed"}
                 </div>
                 <div className="small mb-3">
-                  <strong>Followed Organizers:</strong> {followedOrganizerIds.length}
+                  <strong>Followed Organizers:</strong> {followedOrganizers.length}
                 </div>
                 <Button
                   variant="outline-primary"
@@ -314,6 +328,29 @@ export default function Profile() {
                 >
                   {savingOnboarding ? "Saving..." : "Save Onboarding"}
                 </Button>
+
+                <hr />
+                <div className="small fw-semibold mb-2">Followed Clubs</div>
+                {followedOrganizers.length === 0 ? (
+                  <div className="small text-muted">No followed clubs yet.</div>
+                ) : (
+                  <div className="d-grid gap-2">
+                    {followedOrganizers.map((organizer) => (
+                      <Card key={organizer.id} className="border bg-light">
+                        <Card.Body className="py-2">
+                          <div className="fw-semibold">{organizer.name}</div>
+                          <div className="small text-muted">
+                            {organizer.categoryLabel ??
+                              organizerCategoryLabel(organizer.category)}
+                          </div>
+                          <div className="small text-muted">
+                            {organizer.description ?? "No description available."}
+                          </div>
+                        </Card.Body>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </Card.Body>
             </Card>
 

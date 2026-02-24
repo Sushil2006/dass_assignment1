@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Button, Card, Col, Container, Form, Row, Spinner } from "react-bootstrap";
 import { Link, useNavigate } from "react-router-dom";
 import { apiFetch } from "../../lib/api";
+import { organizerCategoryLabel } from "../../lib/organizerCategories";
 
 type OrganizerSummary = {
   id: string;
   name: string;
   category: string | null;
+  categoryLabel?: string | null;
   description: string | null;
   contactEmail?: string | null;
   contactNumber?: string | null;
@@ -115,6 +117,7 @@ export default function Organizers() {
     return (
       organizer.name.toLowerCase().includes(q) ||
       (organizer.category ?? "").toLowerCase().includes(q) ||
+      (organizer.categoryLabel ?? "").toLowerCase().includes(q) ||
       (organizer.description ?? "").toLowerCase().includes(q)
     );
   });
@@ -168,7 +171,9 @@ export default function Organizers() {
                   <Card.Body>
                     <Card.Title className="h5 mb-1">{organizer.name}</Card.Title>
                     <div className="small text-muted mb-2">
-                      Category: {organizer.category ?? "-"}
+                      Category:{" "}
+                      {organizer.categoryLabel ??
+                        organizerCategoryLabel(organizer.category)}
                     </div>
                     <Card.Text className="text-muted small mb-3">
                       {organizer.description ?? "No description available."}

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Badge, Button, Card, Col, Form, Row, Spinner } from "react-bootstrap";
 import { apiFetch } from "../../lib/api";
+import { organizerCategoryOptions } from "../../lib/organizerCategories";
 
 type OrganizerProfileData = {
   id: string;
   name: string;
   email: string;
   category: string;
+  categoryLabel?: string;
   description: string;
   contactEmail: string;
   contactNumber: string;
@@ -246,11 +248,17 @@ export default function OrganizerProfile() {
                 <Col md={6}>
                   <Form.Group controlId="org-category">
                     <Form.Label>Category</Form.Label>
-                    <Form.Control
+                    <Form.Select
                       value={category}
                       onChange={(event) => setCategory(event.target.value)}
-                      placeholder="club / department / community"
-                    />
+                    >
+                      <option value="">Select category</option>
+                      {organizerCategoryOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Form.Select>
                   </Form.Group>
                 </Col>
 

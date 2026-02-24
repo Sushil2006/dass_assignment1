@@ -3,6 +3,11 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { getDb } from "../db/client";
 import { collections } from "../db/collections";
+import {
+  getOrganizerCategoryLabel,
+  normalizeOrganizerCategory,
+  organizerCategories,
+} from "../constants/organizerCategories";
 import type {
   OrganizerPasswordResetRequestDoc,
   OrganizerPasswordResetRequestStatus,
@@ -51,7 +56,7 @@ type OrganizerPasswordResetRequestResponse = {
 
 const organizerProfilePatchSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
-  category: z.string().trim().max(120).optional(),
+  category: z.union([z.enum(organizerCategories), z.literal("")]).optional(),
   description: z.string().trim().max(2000).optional(),
   contactEmail: z.union([z.string().trim().email(), z.literal("")]).optional(),
   contactNumber: z.string().trim().max(30).optional(),
@@ -81,10 +86,15 @@ function deriveDisplayStatus(event: OrganizerPublicEventDoc, now: Date): Display
 }
 
 function toPublicOrganizer(organizer: OrganizerProfileDoc) {
+  const normalizedCategory = normalizeOrganizerCategory(organizer.organizerCategory);
+
   return {
     id: organizer._id.toString(),
     name: organizer.name,
-    category: organizer.organizerCategory ?? null,
+    category: normalizedCategory,
+    categoryLabel: normalizedCategory
+      ? getOrganizerCategoryLabel(normalizedCategory)
+      : null,
     description: organizer.organizerDescription ?? null,
     contactEmail: organizer.organizerContactEmail ?? organizer.email,
     contactNumber: organizer.organizerContactNumber ?? null,
@@ -93,11 +103,16 @@ function toPublicOrganizer(organizer: OrganizerProfileDoc) {
 }
 
 function toOrganizerSelfProfile(organizer: OrganizerProfileDoc) {
+  const normalizedCategory = normalizeOrganizerCategory(organizer.organizerCategory);
+
   return {
     id: organizer._id.toString(),
     name: organizer.name,
     email: organizer.email,
-    category: organizer.organizerCategory ?? "",
+    category: normalizedCategory ?? "",
+    categoryLabel: normalizedCategory
+      ? getOrganizerCategoryLabel(normalizedCategory)
+      : "",
     description: organizer.organizerDescription ?? "",
     contactEmail: organizer.organizerContactEmail ?? organizer.email,
     contactNumber: organizer.organizerContactNumber ?? "",
@@ -134,6 +149,15 @@ function toOrganizerPasswordResetRequestResponse(
     adminComment: request.adminComment ?? null,
   };
 }
+
+organizersRouter.get("/categories", (_req, res) => {
+  return res.json({
+    categories: organizerCategories.map((value) => ({
+      value,
+      label: getOrganizerCategoryLabel(value),
+    })),
+  });
+});
 
 // public list of active organizers for browse/discovery
 organizersRouter.get("/", async (_req, res, next) => {

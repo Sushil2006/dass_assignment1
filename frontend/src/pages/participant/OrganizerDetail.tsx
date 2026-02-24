@@ -3,11 +3,13 @@ import { Alert, Button, Card, Col, Container, Row, Spinner } from "react-bootstr
 import { Link, useNavigate, useParams } from "react-router-dom";
 import EventCard, { type EventCardData } from "../../components/EventCard";
 import { apiFetch } from "../../lib/api";
+import { organizerCategoryLabel } from "../../lib/organizerCategories";
 
 type OrganizerSummary = {
   id: string;
   name: string;
   category: string | null;
+  categoryLabel?: string | null;
   description: string | null;
   contactEmail?: string | null;
   contactNumber?: string | null;
@@ -189,7 +191,9 @@ export default function OrganizerDetail() {
                 <div>
                   <h2 className="h4 mb-1">{organizer.name}</h2>
                   <div className="small text-muted mb-2">
-                    Category: {organizer.category ?? "-"}
+                    Category:{" "}
+                    {organizer.categoryLabel ??
+                      organizerCategoryLabel(organizer.category)}
                   </div>
                   <div className="text-muted">{organizer.description ?? "No description available."}</div>
                   <div className="small mt-2">
