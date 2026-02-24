@@ -21,6 +21,10 @@ const envSchema = z.object({
     .trim()
     .min(1)
     .default("Felicity <no-reply@felicity.local>"),
+  GMAIL_API_CLIENT_ID: z.string().trim().optional(),
+  GMAIL_API_CLIENT_SECRET: z.string().trim().optional(),
+  GMAIL_API_REFRESH_TOKEN: z.string().trim().optional(),
+  GMAIL_API_USER: z.string().trim().default("me"),
 
   IIIT_EMAIL_DOMAINS: z
     .string()
