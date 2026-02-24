@@ -14,7 +14,7 @@ import {
 } from "react-bootstrap";
 import { Link, useParams } from "react-router-dom";
 import jsQR from "jsqr";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, resolveApiUrl } from "../../lib/api";
 
 type EventType = "NORMAL" | "MERCH";
 type EventStatus = "DRAFT" | "PUBLISHED" | "CLOSED" | "COMPLETED" | "ONGOING";
@@ -974,7 +974,11 @@ export default function OrganizerEventDetail() {
                           {entry.payment?.proofUrl ? (
                             <div>
                               <strong>Proof:</strong>{" "}
-                              <a href={entry.payment.proofUrl} target="_blank" rel="noreferrer">
+                              <a
+                                href={resolveApiUrl(entry.payment.proofUrl)}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
                                 open proof
                               </a>
                             </div>
@@ -1029,7 +1033,11 @@ export default function OrganizerEventDetail() {
                                 <div key={`${entry.id}-${response.key}`}>
                                   <strong>{response.label}:</strong>{" "}
                                   {response.file ? (
-                                    <a href={response.file.downloadUrl} target="_blank" rel="noreferrer">
+                                    <a
+                                      href={resolveApiUrl(response.file.downloadUrl)}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
                                       {response.file.originalName}
                                     </a>
                                   ) : (
@@ -1262,7 +1270,7 @@ export default function OrganizerEventDetail() {
                             {order.payment?.proofUrl ? (
                               <a
                                 className="btn btn-outline-secondary btn-sm"
-                                href={order.payment.proofUrl}
+                                href={resolveApiUrl(order.payment.proofUrl)}
                                 target="_blank"
                                 rel="noreferrer"
                               >
