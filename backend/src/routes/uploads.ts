@@ -58,6 +58,18 @@ function sanitizeFilename(raw: string): string | null {
   return base;
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function paymentProofUrlPattern(filename: string): RegExp {
+  const safeFilename = escapeRegex(filename);
+  return new RegExp(
+    `(?:^https?:\\/\\/[^/]+)?\\/api\\/uploads\\/${safeFilename}$`,
+    "i",
+  );
+}
+
 // protected upload download for owner participant, event organizer, or admin
 uploadsRouter.get("/:filename", requireAuth, async (req, res, next) => {
   try {
@@ -90,7 +102,7 @@ uploadsRouter.get("/:filename", requireAuth, async (req, res, next) => {
 
     if (!participation) {
       const payment = await payments.findOne({
-        proofUrl: `/api/uploads/${filename}`,
+        proofUrl: { $regex: paymentProofUrlPattern(filename) },
       });
       if (!payment) {
         return res.status(404).json({ error: { message: "File not found" } });
