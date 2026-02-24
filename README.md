@@ -1,11 +1,15 @@
 # Felicity Event Management System
 
-MERN-based event platform for participants, organizers, and admin.
+MERN-based felicity event management system for participants, organizers, and admin.
 
 ## Stack
 - Frontend: React + Vite + TypeScript + React-Bootstrap
 - Backend: Node.js + Express + TypeScript
 - Database: MongoDB Atlas
+
+## Deployment
+- Frontend: https://dass-assignment1-frontend.onrender.com/
+- Backend: https://dass-assignment1-ujic.onrender.com/
 
 ## Advanced Features
 
